@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Glam by Dang — DM Simulator</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #fdf6f9;
+      color: #2d2d2d;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 24px 16px 40px;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    header h1 { font-size: 1.5rem; font-weight: 700; color: #a0527a; letter-spacing: -0.3px; }
+    header p  { font-size: 0.85rem; color: #888; margin-top: 4px; }
+
+    .container { width: 100%; max-width: 700px; display: flex; flex-direction: column; gap: 12px; }
+
+    /* ── Test panel ── */
+    .test-panel {
+      background: #fff;
+      border: 1px solid #ecd9e8;
+      border-radius: 14px;
+      overflow: hidden;
+    }
+    .test-panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .test-panel-header span { font-weight: 600; font-size: 0.9rem; color: #a0527a; }
+    .test-panel-header .chevron { font-size: 0.75rem; color: #aaa; transition: transform 0.2s; }
+    .test-panel-header.open .chevron { transform: rotate(180deg); }
+
+    .test-grid {
+      display: none;
+      grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+      gap: 8px;
+      padding: 0 12px 12px;
+    }
+    .test-grid.visible { display: grid; }
+
+    .test-card {
+      background: #fdf6f9;
+      border: 1px solid #ecd9e8;
+      border-radius: 10px;
+      padding: 10px 12px;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .test-card:hover { background: #f5e6f0; border-color: #c47aa0; }
+    .test-card.running { background: #f5e6f0; border-color: #a0527a; }
+    .test-card .tc-num  { font-size: 0.65rem; font-weight: 700; color: #b07090; text-transform: uppercase; letter-spacing: 0.5px; }
+    .test-card .tc-title { font-size: 0.82rem; font-weight: 600; color: #2d2d2d; margin-top: 2px; }
+    .test-card .tc-desc  { font-size: 0.73rem; color: #888; margin-top: 3px; line-height: 1.4; }
+
+    /* ── Status bar ── */
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 14px;
+      background: #fff;
+      border: 1px solid #ecd9e8;
+      border-radius: 12px;
+      font-size: 0.83rem;
+    }
+    .status-dot {
+      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+      background: #4caf50;
+      transition: background 0.3s;
+    }
+    .status-dot.kha { background: #a0527a; }
+    #status-text { flex: 1; color: #555; }
+    .status-bar button {
+      padding: 5px 12px;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    #kha-takeover-btn { background: #f5e6f0; color: #a0527a; }
+    #handoff-btn       { background: #e8f5e9; color: #2e7d32; display: none; }
+
+    /* ── Chat window ── */
+    #chat-window {
+      background: #fff;
+      border: 1px solid #ecd9e8;
+      border-radius: 16px;
+      padding: 20px;
+      min-height: 380px;
+      max-height: 480px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .message { display: flex; flex-direction: column; max-width: 82%; }
+    .message.customer { align-self: flex-end; align-items: flex-end; }
+    .message.bot      { align-self: flex-start; align-items: flex-start; }
+    .message.kha-msg  { align-self: flex-start; align-items: flex-start; }
+
+    .message .label { font-size: 0.7rem; color: #aaa; margin-bottom: 3px; font-weight: 500; letter-spacing: 0.3px; text-transform: uppercase; }
+
+    .message .bubble {
+      padding: 10px 14px;
+      border-radius: 14px;
+      font-size: 0.9rem;
+      line-height: 1.5;
+    }
+    .message.customer .bubble { background: #a0527a; color: #fff; border-bottom-right-radius: 4px; }
+    .message.bot .bubble      { background: #f5edf3; color: #2d2d2d; border-bottom-left-radius: 4px; }
+    .message.kha-msg .bubble  { background: #fff3e0; color: #2d2d2d; border-bottom-left-radius: 4px; border: 1px solid #f5c397; }
+
+    /* Silent indicator */
+    .silent-note {
+      align-self: flex-start;
+      font-size: 0.75rem;
+      color: #aaa;
+      font-style: italic;
+      padding: 4px 10px;
+      background: #f9f9f9;
+      border-radius: 8px;
+      border: 1px dashed #ddd;
+    }
+
+    /* Escalation card */
+    .escalation-card {
+      align-self: flex-start;
+      max-width: 92%;
+      background: #fff8f0;
+      border: 1px solid #f5c397;
+      border-radius: 12px;
+      padding: 14px 16px;
+      font-size: 0.85rem;
+      line-height: 1.6;
+    }
+    .escalation-card .esc-title { font-weight: 700; color: #c0622a; margin-bottom: 8px; font-size: 0.9rem; }
+    .escalation-card .esc-row   { display: flex; gap: 6px; margin-bottom: 3px; }
+    .escalation-card .esc-label { font-weight: 600; color: #888; min-width: 130px; }
+    .urgency-high   { color: #c0622a; font-weight: 700; }
+    .urgency-medium { color: #b08a00; font-weight: 700; }
+    .urgency-low    { color: #2e7d32; font-weight: 700; }
+
+    .badge {
+      display: inline-block; font-size: 0.68rem; padding: 2px 8px; border-radius: 20px;
+      font-weight: 600; letter-spacing: 0.3px; text-transform: uppercase; margin-top: 4px;
+    }
+    .badge.faq            { background: #e8f5e9; color: #2e7d32; }
+    .badge.thankyou       { background: #fce4ec; color: #880e4f; }
+    .badge.booking_intent { background: #e3f2fd; color: #0d47a1; }
+    .badge.complaint      { background: #fbe9e7; color: #bf360c; }
+    .badge.escalate       { background: #fff3e0; color: #e65100; }
+
+    /* Typing indicator */
+    .typing {
+      align-self: flex-start; display: flex; align-items: center; gap: 5px;
+      padding: 10px 14px; background: #f5edf3; border-radius: 14px; border-bottom-left-radius: 4px;
+    }
+    .typing span {
+      width: 7px; height: 7px; border-radius: 50%; background: #a0527a; animation: bounce 1.2s infinite;
+    }
+    .typing span:nth-child(2) { animation-delay: 0.2s; }
+    .typing span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes bounce {
+      0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
+      30%            { transform: translateY(-5px); opacity: 1; }
+    }
+
+    .empty-state { flex: 1; display: flex; align-items: center; justify-content: center; color: #ccc; font-size: 0.9rem; }
+
+    /* Time separator */
+    .time-separator {
+      display: flex; align-items: center; gap: 10px;
+      color: #bbb; font-size: 0.72rem; font-weight: 500; letter-spacing: 0.4px;
+      text-transform: uppercase; margin: 4px 0;
+    }
+    .time-separator::before, .time-separator::after {
+      content: ""; flex: 1; height: 1px; background: #ecdde8;
+    }
+
+    /* Historical messages — slightly muted */
+    .message.history .bubble { opacity: 0.65; }
+    .message.history .label  { opacity: 0.5; }
+
+    /* ── Input areas ── */
+    .input-section { display: flex; flex-direction: column; gap: 8px; }
+
+    .input-row { display: flex; gap: 8px; align-items: center; }
+    .input-row label { font-size: 0.75rem; font-weight: 600; color: #888; min-width: 62px; text-transform: uppercase; letter-spacing: 0.3px; }
+
+    input[type="text"] {
+      flex: 1; padding: 11px 14px; border: 1px solid #ecd9e8; border-radius: 12px;
+      font-size: 0.9rem; outline: none; background: #fff; transition: border-color 0.2s;
+    }
+    input[type="text"]:focus { border-color: #a0527a; }
+
+    #kha-input { border-color: #f5c397; }
+    #kha-input:focus { border-color: #c07000; }
+
+    button {
+      padding: 11px 18px; border: none; border-radius: 12px; font-size: 0.88rem;
+      font-weight: 600; cursor: pointer; transition: opacity 0.2s; white-space: nowrap;
+    }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    #send-btn     { background: #a0527a; color: #fff; }
+    #reset-btn    { background: #f0e6ee; color: #a0527a; }
+    #kha-send-btn { background: #fff3e0; color: #c07000; border: 1px solid #f5c397; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>Glam by Dang — DM Simulator</h1>
+    <p>Simulate Instagram DMs and preview how the assistant responds</p>
+  </header>
+
+  <div class="container">
+
+    <!-- Test cases panel -->
+    <div class="test-panel">
+      <div class="test-panel-header" id="test-panel-toggle">
+        <span>Test Scenarios</span>
+        <span class="chevron">▼</span>
+      </div>
+      <div class="test-grid" id="test-grid"></div>
+    </div>
+
+    <!-- Status bar -->
+    <div class="status-bar">
+      <div class="status-dot" id="status-dot"></div>
+      <span id="status-text">Assistant active</span>
+      <button id="kha-takeover-btn">Kha takes over</button>
+      <button id="handoff-btn">Hand back to assistant</button>
+    </div>
+
+    <!-- Chat window -->
+    <div id="chat-window">
+      <div class="empty-state" id="empty-state">Select a test scenario or type a message below...</div>
+    </div>
+
+    <!-- Inputs -->
+    <div class="input-section">
+      <div class="input-row">
+        <label>Customer</label>
+        <input id="message-input" type="text" placeholder="Type a customer message..." autocomplete="off" />
+        <button id="send-btn">Send</button>
+        <button id="reset-btn">Reset</button>
+      </div>
+      <div class="input-row">
+        <label>Kha</label>
+        <input id="kha-input" type="text" placeholder="Simulate Kha replying directly..." autocomplete="off" />
+        <button id="kha-send-btn">Reply as Kha</button>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    const sessionId = "session_" + Math.random().toString(36).slice(2);
+    const chatWindow   = document.getElementById("chat-window");
+    const input        = document.getElementById("message-input");
+    const sendBtn      = document.getElementById("send-btn");
+    const resetBtn     = document.getElementById("reset-btn");
+    const khaInput     = document.getElementById("kha-input");
+    const khaSendBtn   = document.getElementById("kha-send-btn");
+    const emptyState   = document.getElementById("empty-state");
+    const statusDot    = document.getElementById("status-dot");
+    const statusText   = document.getElementById("status-text");
+    const takeoverBtn  = document.getElementById("kha-takeover-btn");
+    const handoffBtn   = document.getElementById("handoff-btn");
+
+    const CATEGORY_LABELS = {
+      faq: "FAQ", thankyou: "Thank You", booking_intent: "Booking Intent",
+      complaint: "Complaint", escalate: "Escalation",
+    };
+
+    // ── Test cases ──────────────────────────────────────────────────────────
+    const BOOKING_HISTORY = [
+      { role: "user",      content: "Hi, I want to book a lash lift" },
+      { role: "assistant", content: "This is Kha's assistant — so excited for you! You can book directly using Kha's link. Here's the link:\nhttps://www.fresha.com/a/glam-by-dang-new-york-37-west-26th-street-qthgd9hw/booking?menu=true&pId=599800" },
+    ];
+
+    const RETURNING_CUSTOMER_HISTORY = [
+      { role: "user",      content: "Hi! I have an appointment tomorrow for lash extensions, just confirming" },
+      { role: "assistant", content: "This is Kha's assistant — hi! Kha is so excited to see you tomorrow 🤍 Just a reminder to arrive with clean lashes, no mascara or oils. See you then!" },
+      { role: "user",      content: "thank you! she did my brows last month too and they turned out amazing" },
+      { role: "assistant", content: "That's so wonderful to hear! I'd love it if you shared your experience on Google — just search 'Glam by Dang NYC' on Google Maps! 🤍" },
+      { role: "user",      content: "done! left a 5 star review 💕" },
+      { role: "assistant", content: "You're the sweetest, thank you so much! See you tomorrow 🤍" },
+    ];
+
+    const TEST_CASES = [
+      {
+        title: "Tattoo pricing",
+        desc: "New customer asks about tattoo prices",
+        steps: [
+          { type: "customer", message: "how much for a custom tattoo?" }
+        ]
+      },
+      {
+        title: "Debounce",
+        desc: "Two messages 2s apart — combined into one reply",
+        steps: [
+          { type: "customer_nowait", message: "Hiiii 👋" },
+          { type: "delay", ms: 2000 },
+          { type: "customer", message: "how much is a lash lift?" }
+        ]
+      },
+      {
+        title: "Post-appt thank you",
+        desc: "Happy client after visit — assistant asks for a review",
+        steps: [
+          { type: "seed", history: BOOKING_HISTORY, daysAgo: 2 },
+          { type: "customer", message: "Just got my lash lift done yesterday and I'm completely obsessed 😭 thank you so much, Kha is incredible" }
+        ]
+      },
+      {
+        title: "Thank you after FAQ",
+        desc: "Polite thanks after a question — short warm reply, no review prompt",
+        steps: [
+          { type: "customer", message: "how much is a brow lamination?" },
+          { type: "customer", message: "thank you so much!" }
+        ]
+      },
+      {
+        title: "Frustrated customer",
+        desc: "Frustrated tone — assistant de-escalates and hands off to Kha",
+        steps: [
+          { type: "customer", message: "I sent a message 3 days ago about my brows and NOBODY has responded. This is really frustrating!!" }
+        ]
+      },
+      {
+        title: "Booking intent",
+        desc: "Client wants to book — assistant shares direct link",
+        steps: [
+          { type: "customer", message: "I'd love to book a powder brow appointment, how do I do that?" }
+        ]
+      },
+      {
+        title: "Complaint",
+        desc: "Issue with results — escalated to Kha",
+        steps: [
+          { type: "customer", message: "Hi, I got a lash lift last week and my lashes have already lost their curl. This has never happened before and I'm really disappointed" }
+        ]
+      },
+      {
+        title: "Kha takes over",
+        desc: "Kha replies directly — assistant stays silent on follow-up",
+        steps: [
+          { type: "customer", message: "Hey, do you do microblading?" },
+          { type: "kha", message: "Hi! Yes I do 😊 I'd love to tell you more about it — what's your brow situation like?" },
+          { type: "customer", message: "My brows are pretty sparse, I've been thinking about it for a while" }
+        ]
+      },
+      {
+        title: "Long-time customer",
+        desc: "Returning client with history — assistant greets as new conversation",
+        steps: [
+          { type: "seed", history: RETURNING_CUSTOMER_HISTORY, daysAgo: 21 },
+          { type: "customer", message: "Hey! It's been a while — do you guys do fine line tattoos? I've been thinking about a small one" }
+        ]
+      },
+      {
+        title: "Needs Kha directly",
+        desc: "Sensitive inquiry — escalated immediately",
+        steps: [
+          { type: "customer", message: "Hi, I need to speak with Kha directly about something private regarding my last appointment" }
+        ]
+      },
+    ];
+
+    // ── Render test cards ────────────────────────────────────────────────────
+    const testGrid = document.getElementById("test-grid");
+    TEST_CASES.forEach((tc, i) => {
+      const card = document.createElement("div");
+      card.className = "test-card";
+      card.dataset.index = i;
+      card.innerHTML = `
+        <div class="tc-num">Scenario ${i + 1}</div>
+        <div class="tc-title">${tc.title}</div>
+        <div class="tc-desc">${tc.desc}</div>
+      `;
+      card.addEventListener("click", () => runTest(i));
+      testGrid.appendChild(card);
+    });
+
+    document.getElementById("test-panel-toggle").addEventListener("click", function () {
+      this.classList.toggle("open");
+      testGrid.classList.toggle("visible");
+    });
+
+    // ── Status helpers ───────────────────────────────────────────────────────
+    let khaActive = false;
+
+    function setKhaActive(active) {
+      khaActive = active;
+      statusDot.className = "status-dot" + (active ? " kha" : "");
+      statusText.textContent = active ? "Kha is handling this conversation" : "Assistant active";
+      takeoverBtn.style.display = active ? "none" : "";
+      handoffBtn.style.display  = active ? "" : "none";
+    }
+
+    takeoverBtn.addEventListener("click", () => {
+      khaActive = true;
+      setKhaActive(true);
+      // No server call needed — Kha takeover is reflected by the server when she sends a message
+      addSystemNote("Kha has taken over this conversation. The assistant will stay quiet.");
+    });
+
+    handoffBtn.addEventListener("click", async () => {
+      setKhaActive(false);
+      await fetch("/reset", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sessionId }),
+      });
+      chatWindow.innerHTML = `<div class="empty-state" id="empty-state">Handed back to assistant. Conversation reset.</div>`;
+      input.focus();
+    });
+
+    // ── Chat rendering ───────────────────────────────────────────────────────
+    function removeEmpty() {
+      const e = document.getElementById("empty-state");
+      if (e) e.remove();
+    }
+
+    function scrollBottom() { chatWindow.scrollTop = chatWindow.scrollHeight; }
+
+    function escHtml(str) {
+      return str
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;").replace(/\n/g, "<br/>");
+    }
+
+    function addTimeSeparator(label) {
+      const el = document.createElement("div");
+      el.className = "time-separator";
+      el.textContent = label;
+      chatWindow.appendChild(el);
+      scrollBottom();
+    }
+
+    function addCustomerMessage(text, isHistory = false) {
+      removeEmpty();
+      const el = document.createElement("div");
+      el.className = "message customer" + (isHistory ? " history" : "");
+      el.innerHTML = `<div class="label">Customer</div><div class="bubble">${escHtml(text)}</div>`;
+      chatWindow.appendChild(el);
+      scrollBottom();
+    }
+
+    function addKhaMessage(text) {
+      removeEmpty();
+      const el = document.createElement("div");
+      el.className = "message kha-msg";
+      el.innerHTML = `<div class="label">Kha (direct)</div><div class="bubble">${escHtml(text)}</div>`;
+      chatWindow.appendChild(el);
+      scrollBottom();
+    }
+
+    function addBotReply(text, category, confidence, isHistory = false) {
+      const el = document.createElement("div");
+      el.className = "message bot" + (isHistory ? " history" : "");
+      const label = CATEGORY_LABELS[category] || category;
+      const badge = confidence ? `<span class="badge ${category}">${label} · ${confidence}</span>` : "";
+      el.innerHTML = `<div class="label">Kha's Assistant</div><div class="bubble">${escHtml(text)}</div>${badge}`;
+      chatWindow.appendChild(el);
+      scrollBottom();
+    }
+
+    function addSilentNote(text) {
+      removeEmpty();
+      const el = document.createElement("div");
+      el.className = "silent-note";
+      el.textContent = text || "🤫 Assistant stayed quiet";
+      chatWindow.appendChild(el);
+      scrollBottom();
+    }
+
+    function addSystemNote(text) {
+      removeEmpty();
+      const el = document.createElement("div");
+      el.className = "silent-note";
+      el.textContent = "ℹ️ " + text;
+      chatWindow.appendChild(el);
+      scrollBottom();
+    }
+
+    function addEscalation(esc, category, confidence) {
+      const urgencyClass = "urgency-" + (esc.urgency || "medium").toLowerCase();
+      const label = CATEGORY_LABELS[category] || category;
+      const el = document.createElement("div");
+      el.className = "escalation-card";
+      el.innerHTML = `
+        <div class="esc-title">⚠ Escalation — Kha needs to reply</div>
+        <div class="esc-row"><span class="esc-label">Urgency</span><span class="${urgencyClass}">${(esc.urgency||"").toUpperCase()}</span></div>
+        <div class="esc-row"><span class="esc-label">Summary</span><span>${escHtml(esc.summary||"")}</span></div>
+        <div class="esc-row"><span class="esc-label">Suggested action</span><span>${escHtml(esc.suggested_action||"")}</span></div>
+        <div class="esc-row"><span class="esc-label">Why escalated</span><span>${escHtml(esc.reason_escalated||"")}</span></div>
+        <span class="badge ${category}" style="margin-top:8px">${label} · ${confidence}</span>
+      `;
+      chatWindow.appendChild(el);
+      scrollBottom();
+    }
+
+    function addTyping() {
+      const el = document.createElement("div");
+      el.className = "typing";
+      el.id = "typing-indicator";
+      el.innerHTML = `<span></span><span></span><span></span>`;
+      chatWindow.appendChild(el);
+      scrollBottom();
+      return el;
+    }
+
+    function removeTyping() {
+      const t = document.getElementById("typing-indicator");
+      if (t) t.remove();
+    }
+
+    function renderResult(data) {
+      const category   = data.category || "escalate";
+      const confidence = data.classification?.confidence || "?";
+
+      if (data.action === "silent") {
+        if (data.category === "greeting") {
+          addSilentNote("🤫 Just a greeting — assistant stayed quiet and is waiting for more context");
+        } else {
+          addSilentNote("🤫 Assistant stayed quiet — Kha is handling this conversation");
+        }
+        return;
+      }
+
+      if (data.action === "reply") {
+        (data.messages || []).forEach((msg, i) => {
+          addBotReply(msg, category, i === 0 ? confidence : null);
+        });
+      } else {
+        // escalate — show customer-facing reply first, then the internal card
+        if (data.messages) {
+          data.messages.forEach(msg => addBotReply(msg, category, null));
+        }
+        addEscalation(data.escalation, category, confidence);
+      }
+    }
+
+    // ── Send message ─────────────────────────────────────────────────────────
+    let awaitingResponse = false;
+
+    async function sendCustomerMessage(text, awaitReply = true) {
+      if (!text.trim()) return;
+      addCustomerMessage(text);
+
+      if (!awaitReply || awaitingResponse) {
+        fetch("/chat", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session_id: sessionId, message: text }),
+        });
+        return;
+      }
+
+      awaitingResponse = true;
+      sendBtn.disabled = true;
+      addTyping();
+
+      try {
+        const res  = await fetch("/chat", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session_id: sessionId, message: text }),
+        });
+        const data = await res.json();
+        removeTyping();
+        renderResult(data);
+        if (data.action === "silent") setKhaActive(true);
+      } catch (err) {
+        removeTyping();
+        addSystemNote("Error: " + err.message);
+      } finally {
+        awaitingResponse = false;
+        sendBtn.disabled = false;
+        input.focus();
+      }
+    }
+
+    async function sendKhaMessage(text) {
+      if (!text.trim()) return;
+      await fetch("/kha-reply", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sessionId, message: text }),
+      });
+      addKhaMessage(text);
+      setKhaActive(true);
+    }
+
+    sendBtn.addEventListener("click", () => {
+      const text = input.value.trim();
+      input.value = "";
+      sendCustomerMessage(text);
+    });
+
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendBtn.click(); }
+    });
+
+    khaSendBtn.addEventListener("click", async () => {
+      const text = khaInput.value.trim();
+      if (!text) return;
+      khaInput.value = "";
+      await sendKhaMessage(text);
+    });
+
+    khaInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); khaSendBtn.click(); }
+    });
+
+    resetBtn.addEventListener("click", async () => {
+      awaitingResponse = false;
+      setKhaActive(false);
+      await fetch("/reset", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sessionId }),
+      });
+      chatWindow.innerHTML = `<div class="empty-state" id="empty-state">Conversation reset. Type a message or pick a scenario...</div>`;
+      input.focus();
+    });
+
+    // ── Test runner ──────────────────────────────────────────────────────────
+    async function runTest(index) {
+      const tc = TEST_CASES[index];
+
+      // Reset first
+      awaitingResponse = false;
+      setKhaActive(false);
+      await fetch("/reset", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sessionId }),
+      });
+      chatWindow.innerHTML = "";
+      removeEmpty();
+      addSystemNote(`Scenario ${index + 1}: ${tc.title}`);
+
+      // Mark card as running
+      document.querySelectorAll(".test-card").forEach(c => c.classList.remove("running"));
+      document.querySelector(`.test-card[data-index="${index}"]`).classList.add("running");
+
+      for (const step of tc.steps) {
+        if (step.type === "seed") {
+          await fetch("/seed-history", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ session_id: sessionId, history: step.history }),
+          });
+
+          const daysLabel = step.daysAgo
+            ? (step.daysAgo === 1 ? "1 day ago" : `${step.daysAgo} days ago`)
+            : "Previous conversation";
+          addTimeSeparator(daysLabel);
+          for (const msg of step.history) {
+            if (msg.role === "user") {
+              addCustomerMessage(msg.content, true);
+            } else {
+              addBotReply(msg.content, null, null, true);
+            }
+          }
+          addTimeSeparator("Today");
+
+        } else if (step.type === "delay") {
+          await sleep(step.ms);
+
+        } else if (step.type === "customer_nowait") {
+          input.value = "";
+          await sendCustomerMessage(step.message, false);
+
+        } else if (step.type === "customer") {
+          input.value = "";
+          await sendCustomerMessage(step.message, true);
+
+        } else if (step.type === "kha") {
+          await sendKhaMessage(step.message);
+          await sleep(600);
+        }
+      }
+
+      document.querySelector(`.test-card[data-index="${index}"]`).classList.remove("running");
+      input.focus();
+    }
+
+    function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+    // Open test panel by default
+    document.getElementById("test-panel-toggle").classList.add("open");
+    testGrid.classList.add("visible");
+    setKhaActive(false);
+  </script>
+</body>
+</html>
