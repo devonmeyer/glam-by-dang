@@ -218,7 +218,7 @@ async def _send_instagram_message(recipient_id: str, text: str) -> None:
     async with httpx.AsyncClient() as http:
         resp = await http.post(
             f"{GRAPH_API_BASE}/me/messages",
-            params={"access_token": META_PAGE_ACCESS_TOKEN},
+            headers={"Authorization": f"Bearer {META_PAGE_ACCESS_TOKEN}"},
             json={"recipient": {"id": recipient_id}, "message": {"text": text}},
         )
         if resp.status_code != 200:
