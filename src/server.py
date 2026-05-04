@@ -217,6 +217,7 @@ async def _send_instagram_message(recipient_id: str, text: str) -> None:
         logger.warning("META_PAGE_ACCESS_TOKEN not set — skipping Instagram send")
         return
     token = META_PAGE_ACCESS_TOKEN.strip()
+    print(f"[send] raw token repr: {repr(META_PAGE_ACCESS_TOKEN[:40])}", flush=True)
     ig_id = INSTAGRAM_ACCOUNT_ID.strip() or "me"
     async with httpx.AsyncClient() as http:
         resp = await http.post(
