@@ -198,6 +198,8 @@ async def chat(req: MessageRequest):
             session.history.append({"role": "assistant", "content": " ".join(result["messages"])})
             session.last_reply_time = fire_time
 
+        asyncio.create_task(_log_conversation(req.session_id, result))
+
         if not future.done():
             future.set_result(result)
 
@@ -259,6 +261,8 @@ async def _send_instagram_message(recipient_id: str, text: str) -> None:
 
 
 async def _fetch_instagram_name(sender_id: str) -> str:
+    if not sender_id.isdigit():
+        return "Simulator"
     if not META_PAGE_ACCESS_TOKEN:
         return sender_id
     try:
