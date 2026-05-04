@@ -6,7 +6,11 @@ import logging
 import hmac
 import hashlib
 import json
+from contextlib import asynccontextmanager
+from dataclasses import dataclass, field as dc_field
+from datetime import datetime, timedelta
 from typing import Optional
+from zoneinfo import ZoneInfo
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, PlainTextResponse
@@ -36,11 +40,36 @@ INSTAGRAM_VERIFY_TOKEN = os.environ.get("INSTAGRAM_VERIFY_TOKEN", "")
 META_PAGE_ACCESS_TOKEN = os.environ.get("META_PAGE_ACCESS_TOKEN", "")
 META_APP_SECRET = os.environ.get("META_APP_SECRET", "")
 INSTAGRAM_ACCOUNT_ID = os.environ.get("INSTAGRAM_ACCOUNT_ID", "")
+DAILY_SUMMARY_RECIPIENT = os.environ.get("DAILY_SUMMARY_RECIPIENT", "")
 GRAPH_API_BASE = "https://graph.instagram.com/v25.0"
+ET = ZoneInfo("America/New_York")
 
 from agent import process_message
 
-app = FastAPI(title="Glam by Dang DM Simulator")
+server_start_time: float = time.time()
+last_summary_time: float = time.time()  # initialise to start time — no false restart flag on first run
+
+
+@dataclass
+class ConversationRecord:
+    sender_id: str
+    display_name: str = ""
+    conversation_summary: str = ""
+    actions_taken: list = dc_field(default_factory=list)
+    is_escalation: bool = False
+    timestamp: float = 0.0
+
+
+daily_log: dict[str, ConversationRecord] = {}
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    asyncio.create_task(_daily_summary_scheduler())
+    yield
+
+
+app = FastAPI(title="Glam by Dang DM Simulator", lifespan=lifespan)
 
 
 class SessionState:
@@ -229,6 +258,39 @@ async def _send_instagram_message(recipient_id: str, text: str) -> None:
             logger.info("Instagram message sent to %s", recipient_id)
 
 
+async def _fetch_instagram_name(sender_id: str) -> str:
+    if not META_PAGE_ACCESS_TOKEN:
+        return sender_id
+    try:
+        async with httpx.AsyncClient() as http:
+            resp = await http.get(
+                f"{GRAPH_API_BASE}/{sender_id}",
+                headers={"Authorization": f"Bearer {META_PAGE_ACCESS_TOKEN.strip()}"},
+                params={"fields": "name,username"},
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("username"):
+                    return f"@{data['username']}"
+                if data.get("name"):
+                    return data["name"]
+    except Exception as e:
+        logger.warning("Failed to fetch name for %s: %s", sender_id, e)
+    return sender_id
+
+
+async def _log_conversation(sender_id: str, result: dict) -> None:
+    display_name = await _fetch_instagram_name(sender_id)
+    daily_log[sender_id] = ConversationRecord(
+        sender_id=sender_id,
+        display_name=display_name,
+        conversation_summary=result.get("conversation_summary", ""),
+        actions_taken=result.get("actions_taken", []),
+        is_escalation=result.get("action") == "escalate",
+        timestamp=time.time(),
+    )
+
+
 async def _handle_instagram_dm(sender_id: str, text: str) -> None:
     session = get_session(sender_id)
     now = time.time()
@@ -283,7 +345,78 @@ async def _handle_instagram_dm(sender_id: str, text: str) -> None:
             for msg_text in result["messages"]:
                 await _send_instagram_message(sender_id, msg_text)
 
+        await _log_conversation(sender_id, result)
+
     session.debounce_task = asyncio.create_task(debounce())
+
+
+async def _send_daily_summary() -> None:
+    global last_summary_time
+
+    if not DAILY_SUMMARY_RECIPIENT:
+        logger.warning("DAILY_SUMMARY_RECIPIENT not set — skipping daily summary")
+        return
+
+    now_et = datetime.now(ET)
+    date_str = now_et.strftime("%A, %B %-d")
+
+    restart_note = ""
+    if server_start_time > last_summary_time:
+        restart_dt = datetime.fromtimestamp(server_start_time, tz=ET)
+        restart_note = f"⚠️ Note: The assistant restarted at {restart_dt.strftime('%-I:%M %p ET')} — some conversations before then may be missing.\n\n"
+
+    escalations = [r for r in daily_log.values() if r.is_escalation]
+    handled = [r for r in daily_log.values() if not r.is_escalation]
+
+    if not escalations and not handled:
+        chunks = [f"📅 Daily Summary — {date_str}\n\n{restart_note}No DMs to report today."]
+    else:
+        lines: list[str] = [f"📅 Daily Summary — {date_str}\n"]
+        if restart_note:
+            lines.append(restart_note)
+        if escalations:
+            lines.append("⚠️ Needs Attention\n")
+            for r in escalations:
+                actions = ", ".join(r.actions_taken) if r.actions_taken else "Escalated"
+                lines.append(f"• {r.display_name} — {r.conversation_summary} — {actions}\n")
+        if handled:
+            lines.append("\n✅ For Your Visibility\n")
+            for r in handled:
+                actions = ", ".join(r.actions_taken) if r.actions_taken else "Handled"
+                lines.append(f"• {r.display_name} — {r.conversation_summary} — {actions}\n")
+
+        chunks: list[str] = []
+        current = ""
+        for line in lines:
+            if len(current) + len(line) > 980:
+                chunks.append(current.rstrip())
+                current = line
+            else:
+                current += line
+        if current.strip():
+            chunks.append(current.rstrip())
+
+    for chunk in chunks:
+        await _send_instagram_message(DAILY_SUMMARY_RECIPIENT, chunk)
+
+    last_summary_time = time.time()
+    daily_log.clear()
+    logger.info("Daily summary sent: %d escalations, %d handled", len(escalations), len(handled))
+
+
+async def _daily_summary_scheduler() -> None:
+    while True:
+        now = datetime.now(ET)
+        target = now.replace(hour=10, minute=0, second=0, microsecond=0)
+        if now >= target:
+            target += timedelta(days=1)
+        wait_seconds = (target - now).total_seconds()
+        logger.info("Daily summary scheduled in %.0f seconds", wait_seconds)
+        await asyncio.sleep(wait_seconds)
+        try:
+            await _send_daily_summary()
+        except Exception as e:
+            logger.error("Daily summary failed: %s", e, exc_info=True)
 
 
 @app.get("/webhook")

@@ -87,7 +87,9 @@ Do NOT end with a bare "Here's the link:" — the sentence before should already
     "summary": "...",
     "suggested_action": "...",
     "reason_escalated": "..."
-  }}
+  }},
+  "conversation_summary": "<5-8 words describing what this conversation was about, e.g. 'Interested in lash lift pricing', 'Asked about cancellation policy', 'Complained about uneven results'>",
+  "actions_taken": ["<concise description of each action taken, e.g. 'Answered FAQ', 'Sent booking link', 'Sent review request', 'Escalated to Kha', 'Stayed silent'>"]
 }}
 
 booking_signal rules:
@@ -255,6 +257,8 @@ def process_message(message: str, history: list[dict], is_new_conversation: bool
     link = raw.get("link")
     escalation = raw.get("escalation")
     confidence = raw.get("confidence", "low")
+    conversation_summary = raw.get("conversation_summary", "")
+    actions_taken = raw.get("actions_taken", [])
 
     # Suppress the booking link if it was already sent in this conversation
     if link == BOOKING_LINK:
@@ -276,6 +280,8 @@ def process_message(message: str, history: list[dict], is_new_conversation: bool
             "classification": classification,
             "messages": None,
             "escalation": None,
+            "conversation_summary": conversation_summary,
+            "actions_taken": actions_taken,
         }
 
     if action == "reply":
@@ -288,6 +294,8 @@ def process_message(message: str, history: list[dict], is_new_conversation: bool
             "classification": classification,
             "messages": msgs or None,
             "escalation": None,
+            "conversation_summary": conversation_summary,
+            "actions_taken": actions_taken,
         }
 
     # escalate
@@ -298,4 +306,6 @@ def process_message(message: str, history: list[dict], is_new_conversation: bool
         "classification": classification,
         "messages": msgs,
         "escalation": escalation,
+        "conversation_summary": conversation_summary,
+        "actions_taken": actions_taken,
     }
