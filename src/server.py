@@ -350,13 +350,7 @@ async def _handle_instagram_dm(sender_id: str, text: str) -> None:
     session.debounce_task = asyncio.create_task(debounce())
 
 
-async def _send_daily_summary() -> None:
-    global last_summary_time
-
-    if not DAILY_SUMMARY_RECIPIENT:
-        logger.warning("DAILY_SUMMARY_RECIPIENT not set — skipping daily summary")
-        return
-
+async def _build_summary_chunks() -> list[str]:
     now_et = datetime.now(ET)
     date_str = now_et.strftime("%A, %B %-d")
 
@@ -369,32 +363,45 @@ async def _send_daily_summary() -> None:
     handled = [r for r in daily_log.values() if not r.is_escalation]
 
     if not escalations and not handled:
-        chunks = [f"📅 Daily Summary — {date_str}\n\n{restart_note}No DMs to report today."]
-    else:
-        lines: list[str] = [f"📅 Daily Summary — {date_str}\n"]
-        if restart_note:
-            lines.append(restart_note)
-        if escalations:
-            lines.append("⚠️ Needs Attention\n")
-            for r in escalations:
-                actions = ", ".join(r.actions_taken) if r.actions_taken else "Escalated"
-                lines.append(f"• {r.display_name} — {r.conversation_summary} — {actions}\n")
-        if handled:
-            lines.append("\n✅ For Your Visibility\n")
-            for r in handled:
-                actions = ", ".join(r.actions_taken) if r.actions_taken else "Handled"
-                lines.append(f"• {r.display_name} — {r.conversation_summary} — {actions}\n")
+        return [f"📅 Daily Summary — {date_str}\n\n{restart_note}No DMs to report today."]
 
-        chunks: list[str] = []
-        current = ""
-        for line in lines:
-            if len(current) + len(line) > 980:
-                chunks.append(current.rstrip())
-                current = line
-            else:
-                current += line
-        if current.strip():
+    lines: list[str] = [f"📅 Daily Summary — {date_str}\n"]
+    if restart_note:
+        lines.append(restart_note)
+    if escalations:
+        lines.append("⚠️ Needs Attention\n")
+        for r in escalations:
+            actions = ", ".join(r.actions_taken) if r.actions_taken else "Escalated"
+            lines.append(f"• {r.display_name} — {r.conversation_summary} — {actions}\n")
+    if handled:
+        lines.append("\n✅ For Your Visibility\n")
+        for r in handled:
+            actions = ", ".join(r.actions_taken) if r.actions_taken else "Handled"
+            lines.append(f"• {r.display_name} — {r.conversation_summary} — {actions}\n")
+
+    chunks: list[str] = []
+    current = ""
+    for line in lines:
+        if len(current) + len(line) > 980:
             chunks.append(current.rstrip())
+            current = line
+        else:
+            current += line
+    if current.strip():
+        chunks.append(current.rstrip())
+    return chunks
+
+
+async def _send_daily_summary() -> None:
+    global last_summary_time
+
+    if not DAILY_SUMMARY_RECIPIENT:
+        logger.warning("DAILY_SUMMARY_RECIPIENT not set — skipping daily summary")
+        return
+
+    chunks = await _build_summary_chunks()
+    escalations = [r for r in daily_log.values() if r.is_escalation]
+    handled = [r for r in daily_log.values() if not r.is_escalation]
 
     for chunk in chunks:
         await _send_instagram_message(DAILY_SUMMARY_RECIPIENT, chunk)
@@ -423,6 +430,12 @@ async def _daily_summary_scheduler() -> None:
 async def trigger_summary():
     await _send_daily_summary()
     return {"status": "ok"}
+
+
+@app.get("/preview-summary")
+async def preview_summary():
+    chunks = await _build_summary_chunks()
+    return {"chunks": chunks}
 
 
 @app.get("/webhook")

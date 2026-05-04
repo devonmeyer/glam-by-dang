@@ -635,12 +635,20 @@
     document.getElementById("summary-btn").addEventListener("click", async () => {
       const btn = document.getElementById("summary-btn");
       btn.disabled = true;
-      btn.textContent = "Sending…";
+      btn.textContent = "Loading…";
       try {
-        await fetch("/trigger-summary", { method: "POST" });
-        addSystemNote("Daily summary sent to Instagram.");
+        const res = await fetch("/preview-summary");
+        const data = await res.json();
+        removeEmpty();
+        data.chunks.forEach((chunk, i) => {
+          const el = document.createElement("div");
+          el.className = "message bot";
+          el.innerHTML = `<div class="label">Daily Summary Preview${data.chunks.length > 1 ? ` (${i + 1}/${data.chunks.length})` : ""}</div><div class="bubble" style="white-space:pre-wrap">${escHtml(chunk)}</div>`;
+          chatWindow.appendChild(el);
+        });
+        scrollBottom();
       } catch (err) {
-        addSystemNote("Failed to send summary: " + err.message);
+        addSystemNote("Failed to load summary: " + err.message);
       } finally {
         btn.disabled = false;
         btn.textContent = "Send Summary";
