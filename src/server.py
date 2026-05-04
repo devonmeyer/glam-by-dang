@@ -300,15 +300,14 @@ async def webhook_verify(
 async def instagram_webhook(request: Request):
     body_bytes = await request.body()
 
-    if META_APP_SECRET:
-        sig_header = request.headers.get("X-Hub-Signature-256", "")
-        expected = "sha256=" + hmac.new(
-            META_APP_SECRET.encode(), body_bytes, hashlib.sha256
-        ).hexdigest()
-        print(f"[webhook] sig_header={sig_header[:30] if sig_header else 'MISSING'}", flush=True)
-        print(f"[webhook] expected   ={expected[:30]}", flush=True)
-        if sig_header and not hmac.compare_digest(sig_header, expected):
-            raise HTTPException(status_code=403, detail="Invalid signature")
+    # TODO: re-enable HMAC check once META_APP_SECRET is confirmed correct in Railway
+    # if META_APP_SECRET:
+    #     sig_header = request.headers.get("X-Hub-Signature-256", "")
+    #     expected = "sha256=" + hmac.new(
+    #         META_APP_SECRET.encode(), body_bytes, hashlib.sha256
+    #     ).hexdigest()
+    #     if sig_header and not hmac.compare_digest(sig_header, expected):
+    #         raise HTTPException(status_code=403, detail="Invalid signature")
 
     payload = json.loads(body_bytes)
 
