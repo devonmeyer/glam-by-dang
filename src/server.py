@@ -35,6 +35,7 @@ if not os.environ.get("ANTHROPIC_API_KEY"):
 INSTAGRAM_VERIFY_TOKEN = os.environ.get("INSTAGRAM_VERIFY_TOKEN", "")
 META_PAGE_ACCESS_TOKEN = os.environ.get("META_PAGE_ACCESS_TOKEN", "")
 META_APP_SECRET = os.environ.get("META_APP_SECRET", "")
+INSTAGRAM_ACCOUNT_ID = os.environ.get("INSTAGRAM_ACCOUNT_ID", "")
 GRAPH_API_BASE = "https://graph.facebook.com/v21.0"
 
 from agent import process_message
@@ -216,10 +217,10 @@ async def _send_instagram_message(recipient_id: str, text: str) -> None:
         logger.warning("META_PAGE_ACCESS_TOKEN not set — skipping Instagram send")
         return
     token = META_PAGE_ACCESS_TOKEN.strip()
-    print(f"[send] token length={len(token)} first10={token[:10]} last10={token[-10:]}", flush=True)
+    ig_id = INSTAGRAM_ACCOUNT_ID.strip() or "me"
     async with httpx.AsyncClient() as http:
         resp = await http.post(
-            f"{GRAPH_API_BASE}/me/messages",
+            f"{GRAPH_API_BASE}/{ig_id}/messages",
             headers={"Authorization": f"Bearer {token}"},
             json={"recipient": {"id": recipient_id}, "message": {"text": text}},
         )
