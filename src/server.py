@@ -313,6 +313,7 @@ async def instagram_webhook(request: Request):
     #         raise HTTPException(status_code=403, detail="Invalid signature")
 
     payload = json.loads(body_bytes)
+    print(f"[webhook] {json.dumps(payload)[:600]}", flush=True)
 
     if payload.get("object") != "instagram":
         return {"status": "ok"}
