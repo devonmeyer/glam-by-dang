@@ -313,16 +313,17 @@ async def instagram_webhook(request: Request):
     #         raise HTTPException(status_code=403, detail="Invalid signature")
 
     payload = json.loads(body_bytes)
-    print(f"[webhook] {json.dumps(payload)[:600]}", flush=True)
 
     if payload.get("object") != "instagram":
         return {"status": "ok"}
 
     for entry in payload.get("entry", []):
-        for change in entry.get("changes", []):
-            if change.get("field") != "messages":
-                continue
-            event = change.get("value", {})
+        # Real Instagram DMs arrive in messaging[], Meta's test button uses changes[]
+        events = entry.get("messaging", [])
+        if not events:
+            events = [c.get("value", {}) for c in entry.get("changes", []) if c.get("field") == "messages"]
+
+        for event in events:
             sender_id = event.get("sender", {}).get("id")
             if not sender_id:
                 continue
