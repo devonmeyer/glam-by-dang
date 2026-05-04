@@ -222,6 +222,7 @@
 
     #send-btn     { background: #a0527a; color: #fff; }
     #reset-btn    { background: #f0e6ee; color: #a0527a; }
+    #summary-btn  { background: #e8f0fe; color: #1a56c4; }
     #kha-send-btn { background: #fff3e0; color: #c07000; border: 1px solid #f5c397; }
   </style>
 </head>
@@ -263,6 +264,7 @@
         <input id="message-input" type="text" placeholder="Type a customer message..." autocomplete="off" />
         <button id="send-btn">Send</button>
         <button id="reset-btn">Reset</button>
+        <button id="summary-btn">Send Summary</button>
       </div>
       <div class="input-row">
         <label>Kha</label>
@@ -628,6 +630,21 @@
 
     khaInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); khaSendBtn.click(); }
+    });
+
+    document.getElementById("summary-btn").addEventListener("click", async () => {
+      const btn = document.getElementById("summary-btn");
+      btn.disabled = true;
+      btn.textContent = "Sending…";
+      try {
+        await fetch("/trigger-summary", { method: "POST" });
+        addSystemNote("Daily summary sent to Instagram.");
+      } catch (err) {
+        addSystemNote("Failed to send summary: " + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Send Summary";
+      }
     });
 
     resetBtn.addEventListener("click", async () => {

@@ -419,6 +419,12 @@ async def _daily_summary_scheduler() -> None:
             logger.error("Daily summary failed: %s", e, exc_info=True)
 
 
+@app.post("/trigger-summary")
+async def trigger_summary():
+    await _send_daily_summary()
+    return {"status": "ok"}
+
+
 @app.get("/webhook")
 async def webhook_verify(
     hub_mode: str = Query(None, alias="hub.mode"),
