@@ -317,7 +317,10 @@ async def instagram_webhook(request: Request):
         return {"status": "ok"}
 
     for entry in payload.get("entry", []):
-        for event in entry.get("messaging", []):
+        for change in entry.get("changes", []):
+            if change.get("field") != "messages":
+                continue
+            event = change.get("value", {})
             sender_id = event.get("sender", {}).get("id")
             if not sender_id:
                 continue
