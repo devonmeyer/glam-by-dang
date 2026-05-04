@@ -215,10 +215,12 @@ async def _send_instagram_message(recipient_id: str, text: str) -> None:
     if not META_PAGE_ACCESS_TOKEN:
         logger.warning("META_PAGE_ACCESS_TOKEN not set — skipping Instagram send")
         return
+    token = META_PAGE_ACCESS_TOKEN.strip()
+    print(f"[send] token length={len(token)} first10={token[:10]} last10={token[-10:]}", flush=True)
     async with httpx.AsyncClient() as http:
         resp = await http.post(
             f"{GRAPH_API_BASE}/me/messages",
-            headers={"Authorization": f"Bearer {META_PAGE_ACCESS_TOKEN}"},
+            headers={"Authorization": f"Bearer {token}"},
             json={"recipient": {"id": recipient_id}, "message": {"text": text}},
         )
         if resp.status_code != 200:
