@@ -305,7 +305,11 @@ async def instagram_webhook(request: Request):
         expected = "sha256=" + hmac.new(
             META_APP_SECRET.encode(), body_bytes, hashlib.sha256
         ).hexdigest()
+        if not sig_header:
+            logger.warning("Webhook 403: X-Hub-Signature-256 header missing")
+            raise HTTPException(status_code=403, detail="Invalid signature")
         if not hmac.compare_digest(sig_header, expected):
+            logger.warning("Webhook 403: signature mismatch (received=%s)", sig_header[:20])
             raise HTTPException(status_code=403, detail="Invalid signature")
 
     payload = json.loads(body_bytes)
