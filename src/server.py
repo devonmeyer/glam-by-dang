@@ -36,7 +36,7 @@ INSTAGRAM_VERIFY_TOKEN = os.environ.get("INSTAGRAM_VERIFY_TOKEN", "")
 META_PAGE_ACCESS_TOKEN = os.environ.get("META_PAGE_ACCESS_TOKEN", "")
 META_APP_SECRET = os.environ.get("META_APP_SECRET", "")
 INSTAGRAM_ACCOUNT_ID = os.environ.get("INSTAGRAM_ACCOUNT_ID", "")
-GRAPH_API_BASE = "https://graph.instagram.com/v21.0"
+GRAPH_API_BASE = "https://graph.instagram.com/v25.0"
 
 from agent import process_message
 
@@ -217,10 +217,9 @@ async def _send_instagram_message(recipient_id: str, text: str) -> None:
         logger.warning("META_PAGE_ACCESS_TOKEN not set — skipping Instagram send")
         return
     token = META_PAGE_ACCESS_TOKEN.strip()
-    ig_id = INSTAGRAM_ACCOUNT_ID.strip() or "me"
     async with httpx.AsyncClient() as http:
         resp = await http.post(
-            f"{GRAPH_API_BASE}/{ig_id}/messages",
+            f"{GRAPH_API_BASE}/me/messages",
             headers={"Authorization": f"Bearer {token}"},
             json={"recipient": {"id": recipient_id}, "message": {"text": text}},
         )
