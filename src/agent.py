@@ -115,7 +115,7 @@ Action rules:
 - "silent" (greeting): reply=null, link=null, escalation=null
 - "reply" (faq/thankyou/booking_intent, not frustrated): write reply, add link if needed, escalation=null
 - "escalate" + frustrated: write an empathetic reply (acknowledge feelings, reassure Kha will follow up personally), link=null, populate escalation
-- "escalate" + not frustrated: reply=null, link=null, populate escalation
+- "escalate" + not frustrated: write a brief warm holding message (e.g. "I'll make sure Kha sees this and gets back to you! 🤍"), link=null, populate escalation
 
 ## Business context
 {BUSINESS_CONTEXT}"""
@@ -299,7 +299,7 @@ def process_message(message: str, history: list[dict], is_new_conversation: bool
         }
 
     # escalate
-    msgs = [reply] if (is_frustrated and reply) else [ESCALATION_REPLY]
+    msgs = [reply] if reply else [ESCALATION_REPLY]
     return {
         "action": "escalate",
         "category": category,
