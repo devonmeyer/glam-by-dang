@@ -39,10 +39,14 @@ if not os.environ.get("ANTHROPIC_API_KEY"):
 INSTAGRAM_VERIFY_TOKEN = os.environ.get("INSTAGRAM_VERIFY_TOKEN", "")
 META_PAGE_ACCESS_TOKEN = os.environ.get("META_PAGE_ACCESS_TOKEN", "")
 META_APP_SECRET = os.environ.get("META_APP_SECRET", "")
-INSTAGRAM_ACCOUNT_ID = os.environ.get("INSTAGRAM_ACCOUNT_ID", "")
 DAILY_SUMMARY_RECIPIENT = os.environ.get("DAILY_SUMMARY_RECIPIENT", "")
 GRAPH_API_BASE = "https://graph.instagram.com/v25.0"
 ET = ZoneInfo("America/New_York")
+
+BOT_SENT_TTL = 24 * 60 * 60
+bot_sent_ids: dict[str, float] = {}        # message_id → sent_timestamp
+kha_confirmed_senders: dict[str, float] = {}  # user_psid → timestamp of last confirmed Kha reply
+own_account_id: str = ""                   # set from first incoming webhook
 
 from agent import process_message
 
@@ -257,7 +261,86 @@ async def _send_instagram_message(recipient_id: str, text: str) -> None:
         if resp.status_code != 200:
             logger.error("Instagram send failed %s: %s", resp.status_code, resp.text)
         else:
-            logger.info("Instagram message sent to %s", recipient_id)
+            data = resp.json()
+            msg_id = data.get("message_id") or data.get("id")
+            if msg_id:
+                _record_bot_message(msg_id)
+            logger.info("Instagram message sent to %s (mid=%s)", recipient_id, msg_id)
+
+
+def _record_bot_message(msg_id: str) -> None:
+    bot_sent_ids[msg_id] = time.time()
+    cutoff = time.time() - BOT_SENT_TTL
+    stale = [k for k, v in bot_sent_ids.items() if v < cutoff]
+    for k in stale:
+        del bot_sent_ids[k]
+
+
+def _is_kha_active(sender_id: str, recent_outbound: list[dict]) -> bool:
+    if time.time() - kha_confirmed_senders.get(sender_id, 0) < NEW_CONVERSATION_THRESHOLD:
+        return True
+    return any(m["id"] not in bot_sent_ids for m in recent_outbound)
+
+
+async def _fetch_conversation_context(sender_id: str) -> tuple[list[dict], list[dict], Optional[float]]:
+    """Returns (history, recent_outbound, last_assistant_ts).
+    history is oldest-first [{role, content}].
+    recent_outbound is [{id, ts}] for outbound messages within the last hour.
+    last_assistant_ts is the timestamp of the most recent assistant message, or None.
+    """
+    if not META_PAGE_ACCESS_TOKEN or not own_account_id:
+        return [], [], None
+    try:
+        async with httpx.AsyncClient() as http:
+            resp = await http.get(
+                f"{GRAPH_API_BASE}/me/conversations",
+                headers={"Authorization": f"Bearer {META_PAGE_ACCESS_TOKEN.strip()}"},
+                params={
+                    "user_id": sender_id,
+                    "fields": "messages.limit(25){id,message,from,created_time}",
+                    "limit": 1,
+                },
+            )
+            if resp.status_code != 200:
+                logger.warning("Conversation fetch failed %s: %s", resp.status_code, resp.text)
+                return [], [], None
+
+            convos = resp.json().get("data", [])
+            if not convos:
+                return [], [], None
+
+            raw = list(reversed(convos[0].get("messages", {}).get("data", [])))
+            now = time.time()
+            history: list[dict] = []
+            recent_outbound: list[dict] = []
+            last_assistant_ts: Optional[float] = None
+
+            for msg in raw:
+                from_id = msg.get("from", {}).get("id", "")
+                text = msg.get("message", "")
+                msg_id = msg.get("id", "")
+                try:
+                    ts = datetime.fromisoformat(
+                        msg.get("created_time", "").replace("Z", "+00:00")
+                    ).timestamp()
+                except Exception:
+                    ts = 0.0
+
+                if not text:
+                    continue
+                if from_id == sender_id:
+                    history.append({"role": "user", "content": text})
+                elif from_id == own_account_id:
+                    history.append({"role": "assistant", "content": text})
+                    last_assistant_ts = ts
+                    if now - ts < NEW_CONVERSATION_THRESHOLD:
+                        recent_outbound.append({"id": msg_id, "ts": ts})
+
+            return history[-MAX_HISTORY:], recent_outbound, last_assistant_ts
+
+    except Exception as e:
+        logger.error("_fetch_conversation_context failed: %s", e, exc_info=True)
+        return [], [], None
 
 
 async def _fetch_instagram_name(sender_id: str) -> str:
@@ -297,13 +380,11 @@ async def _log_conversation(sender_id: str, result: dict) -> None:
 
 async def _handle_instagram_dm(sender_id: str, text: str) -> None:
     session = get_session(sender_id)
-    now = time.time()
 
-    if session.kha_active:
-        last_kha = session.last_kha_reply_time or 0
-        if (now - last_kha) < NEW_CONVERSATION_THRESHOLD:
-            return
-        session.kha_active = False
+    # Fast bail if Kha was confirmed active via a recent echo event
+    if time.time() - kha_confirmed_senders.get(sender_id, 0) < NEW_CONVERSATION_THRESHOLD:
+        logger.info("Kha confirmed active for %s — skipping", sender_id)
+        return
 
     session.pending_messages.append(text)
 
@@ -317,22 +398,24 @@ async def _handle_instagram_dm(sender_id: str, text: str) -> None:
             return
 
         fire_time = time.time()
-
-        if session.kha_active and session.last_kha_reply_time and \
-                (fire_time - session.last_kha_reply_time) < NEW_CONVERSATION_THRESHOLD:
-            session.pending_messages.clear()
-            return
-
         combined = "\n".join(session.pending_messages)
         session.pending_messages.clear()
 
+        # Fetch conversation context from Instagram API
+        history, recent_outbound, last_assistant_ts = await _fetch_conversation_context(sender_id)
+
+        # Pre-process Kha check
+        if _is_kha_active(sender_id, recent_outbound):
+            logger.info("Kha active for %s — skipping", sender_id)
+            return
+
         is_new_conversation = (
-            session.last_reply_time is None or
-            (fire_time - session.last_reply_time) >= NEW_CONVERSATION_THRESHOLD
+            last_assistant_ts is None or
+            (fire_time - last_assistant_ts) >= NEW_CONVERSATION_THRESHOLD
         )
 
         try:
-            result = process_message(combined, session.history, is_new_conversation)
+            result = process_message(combined, history, is_new_conversation)
         except Exception as e:
             logger.error("process_message failed: %s", e, exc_info=True)
             result = {
@@ -340,14 +423,22 @@ async def _handle_instagram_dm(sender_id: str, text: str) -> None:
                 "category": "escalate",
                 "messages": ["I'll make sure Kha sees this and gets back to you! 🤍"],
                 "escalation": None,
+                "conversation_summary": "",
+                "actions_taken": [],
             }
 
-        if result.get("messages"):
-            session.history.append({"role": "user", "content": combined})
-            session.history.append({"role": "assistant", "content": " ".join(result["messages"])})
-            session.last_reply_time = fire_time
-            for msg_text in result["messages"]:
-                await _send_instagram_message(sender_id, msg_text)
+        if not result.get("messages"):
+            await _log_conversation(sender_id, result)
+            return
+
+        # Pre-send Kha check — did she reply while Claude was thinking?
+        _, recent_outbound_now, _ = await _fetch_conversation_context(sender_id)
+        if _is_kha_active(sender_id, recent_outbound_now):
+            logger.info("Kha replied while processing %s — not sending", sender_id)
+            return
+
+        for msg_text in result["messages"]:
+            await _send_instagram_message(sender_id, msg_text)
 
         await _log_conversation(sender_id, result)
 
@@ -456,6 +547,8 @@ async def webhook_verify(
 
 @app.post("/webhook")
 async def instagram_webhook(request: Request):
+    global own_account_id
+
     body_bytes = await request.body()
 
     # TODO: re-enable HMAC check once META_APP_SECRET is confirmed correct in Railway
@@ -473,17 +566,31 @@ async def instagram_webhook(request: Request):
         return {"status": "ok"}
 
     for entry in payload.get("entry", []):
-        # Real Instagram DMs arrive in messaging[], Meta's test button uses changes[]
         events = entry.get("messaging", [])
         if not events:
             events = [c.get("value", {}) for c in entry.get("changes", []) if c.get("field") == "messages"]
 
         for event in events:
             sender_id = event.get("sender", {}).get("id")
-            if not sender_id:
-                continue
+            recipient_id = event.get("recipient", {}).get("id")
             msg = event.get("message", {})
-            if msg.get("is_echo") or "text" not in msg:
+
+            if msg.get("is_echo"):
+                # Outbound message from our account — check if Kha sent it
+                msg_id = msg.get("mid") or msg.get("id", "")
+                if msg_id and msg_id not in bot_sent_ids:
+                    user_id = recipient_id
+                    if user_id:
+                        kha_confirmed_senders[user_id] = time.time()
+                        logger.info("Kha reply detected via echo for user %s", user_id)
+                continue
+
+            # Learn our own account ID from the recipient field of incoming messages
+            if recipient_id and not own_account_id:
+                own_account_id = recipient_id
+                logger.info("Own account ID set to %s", own_account_id)
+
+            if not sender_id or "text" not in msg:
                 continue
             text = msg["text"].strip()
             if not text or len(text) > MAX_MESSAGE_LENGTH:
