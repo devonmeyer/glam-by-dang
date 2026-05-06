@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 NEW_CONVERSATION_THRESHOLD = 60 * 60  # 1 hour
 DEBOUNCE_SECONDS = 5
 MAX_MESSAGE_LENGTH = 1000
+MAX_HISTORY = 20
 SESSION_TTL = 24 * 60 * 60  # 24 hours
 
 load_dotenv(Path(__file__).parent.parent / ".env")
