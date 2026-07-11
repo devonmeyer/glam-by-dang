@@ -36,8 +36,8 @@ Kha was born and raised in Vietnam and moved to the United States at age 19. She
 ## Services & Pricing
 
 ### Fine Line Tattoo
-- Customized tattoo: from $150 — includes 1 quote/word, cursive letter, or number; personalized designs vary in price. For custom quotes, clients should reach out via Instagram (@glambydangnyc).
-- Flash tattoo: from $100 — pre-designed flash options can be found in the "Flash" highlight on her Instagram (@glambydangnyc).
+- Customized tattoo: from $150 — includes 1 quote/word, cursive letter, or number; personalized designs vary in price. For custom quotes, clients share their reference photo or design idea here and Kha follows up with a quote.
+- Flash tattoo: from $100 — pre-designed flash options can be found in the "Flash" highlight on Kha's profile.
 - 2-week fill: from $100 — for existing tattoo clients, 9–15 days after original appointment.
 
 ### Permanent Makeup (starting prices ~$750 per service)
@@ -75,7 +75,7 @@ Kha is available for weddings, birthdays, bachelorettes, corporate events, and o
 - **4 Hour Flash Tattoo** — $2,000 (for events with up to 50 guests). Custom branded design sheet with ~10 tiny tattoo designs.
 - **6 Hour Flash Tattoo** — $3,500 (for events with up to 100 guests). Custom branded design sheet with ~20 tiny tattoo designs.
 
-For event inquiries, clients should reach out via Instagram (@glambydangnyc) to discuss details.
+For event inquiries, clients share details here and Kha follows up directly.
 
 ### Other Offerings
 - **Memberships:** Service bundles available — clients can ask Kha for details.
