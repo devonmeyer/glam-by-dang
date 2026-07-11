@@ -44,6 +44,51 @@ DAILY_SUMMARY_RECIPIENT = os.environ.get("DAILY_SUMMARY_RECIPIENT", "")
 GRAPH_API_BASE = "https://graph.instagram.com/v25.0"
 ET = ZoneInfo("America/New_York")
 
+TOKEN_FILE = Path("/data/meta_token.txt")
+TOKEN_REFRESH_INTERVAL = 45 * 24 * 60 * 60   # refresh every 45 days (token lasts 60)
+
+# Mutable token — updated by the auto-refresh background task
+_access_token: str = META_PAGE_ACCESS_TOKEN
+
+
+def _load_persisted_token() -> None:
+    global _access_token
+    if TOKEN_FILE.exists():
+        token = TOKEN_FILE.read_text().strip()
+        if token:
+            _access_token = token
+            logger.info("Loaded access token from %s", TOKEN_FILE)
+    if not _access_token:
+        logger.warning("No META_PAGE_ACCESS_TOKEN set — Instagram features disabled")
+
+
+def _get_token() -> str:
+    return _access_token
+
+
+async def _refresh_instagram_token() -> None:
+    global _access_token
+    token = _access_token
+    if not token:
+        logger.warning("Token refresh skipped — no token set")
+        return
+    async with httpx.AsyncClient() as http:
+        resp = await http.get(
+            "https://graph.instagram.com/refresh_access_token",
+            params={"grant_type": "ig_refresh_token", "access_token": token},
+        )
+    if resp.status_code != 200:
+        logger.error("Token refresh failed %s: %s", resp.status_code, resp.text)
+        return
+    new_token = resp.json().get("access_token", "")
+    if not new_token:
+        logger.error("Token refresh returned no access_token: %s", resp.text)
+        return
+    _access_token = new_token
+    TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+    TOKEN_FILE.write_text(new_token)
+    logger.info("Instagram access token refreshed and persisted")
+
 BOT_SENT_TTL = 24 * 60 * 60
 bot_sent_ids: dict[str, float] = {}        # message_id → sent_timestamp
 kha_confirmed_senders: dict[str, float] = {}  # user_psid → timestamp of last confirmed Kha reply
@@ -70,7 +115,9 @@ daily_log: dict[str, ConversationRecord] = {}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    _load_persisted_token()
     asyncio.create_task(_daily_summary_scheduler())
+    asyncio.create_task(_token_refresh_scheduler())
     yield
 
 
@@ -249,10 +296,11 @@ async def reset(req: ResetRequest):
 
 
 async def _send_instagram_message(recipient_id: str, text: str) -> None:
-    if not META_PAGE_ACCESS_TOKEN:
+    token = _get_token()
+    if not token:
         logger.warning("META_PAGE_ACCESS_TOKEN not set — skipping Instagram send")
         return
-    token = META_PAGE_ACCESS_TOKEN.strip()
+    token = token.strip()
     async with httpx.AsyncClient() as http:
         resp = await http.post(
             f"{GRAPH_API_BASE}/me/messages",
@@ -289,13 +337,13 @@ async def _fetch_conversation_context(sender_id: str) -> tuple[list[dict], list[
     recent_outbound is [{id, ts}] for outbound messages within the last hour.
     last_assistant_ts is the timestamp of the most recent assistant message, or None.
     """
-    if not META_PAGE_ACCESS_TOKEN or not own_account_id:
+    if not _get_token() or not own_account_id:
         return [], [], None
     try:
         async with httpx.AsyncClient() as http:
             resp = await http.get(
                 f"{GRAPH_API_BASE}/me/conversations",
-                headers={"Authorization": f"Bearer {META_PAGE_ACCESS_TOKEN.strip()}"},
+                headers={"Authorization": f"Bearer {_get_token().strip()}"},
                 params={
                     "user_id": sender_id,
                     "fields": "messages.limit(25){id,message,from,created_time}",
@@ -347,13 +395,13 @@ async def _fetch_conversation_context(sender_id: str) -> tuple[list[dict], list[
 async def _fetch_instagram_name(sender_id: str) -> str:
     if not sender_id.isdigit():
         return "Simulator"
-    if not META_PAGE_ACCESS_TOKEN:
+    if not _get_token():
         return sender_id
     try:
         async with httpx.AsyncClient() as http:
             resp = await http.get(
                 f"{GRAPH_API_BASE}/{sender_id}",
-                headers={"Authorization": f"Bearer {META_PAGE_ACCESS_TOKEN.strip()}"},
+                headers={"Authorization": f"Bearer {_get_token().strip()}"},
                 params={"fields": "name,username"},
             )
             if resp.status_code == 200:
@@ -520,6 +568,16 @@ async def _daily_summary_scheduler() -> None:
             await _send_daily_summary()
         except Exception as e:
             logger.error("Daily summary failed: %s", e, exc_info=True)
+
+
+async def _token_refresh_scheduler() -> None:
+    await asyncio.sleep(TOKEN_REFRESH_INTERVAL)
+    while True:
+        try:
+            await _refresh_instagram_token()
+        except Exception as e:
+            logger.error("Token refresh failed: %s", e, exc_info=True)
+        await asyncio.sleep(TOKEN_REFRESH_INTERVAL)
 
 
 @app.post("/trigger-summary")
