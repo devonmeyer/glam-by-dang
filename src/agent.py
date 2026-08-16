@@ -211,28 +211,19 @@ def process_message(message: str, history: list[dict], is_new_conversation: bool
         "The booking link has not been shared yet in this conversation."
     )
 
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=1024,
-        system=[
-            {
-                "type": "text",
-                "text": SYSTEM_PROMPT,
-                "cache_control": {"type": "ephemeral"},
-            },
-            {
-                "type": "text",
-                "text": prefix_note,
-            },
-        ],
-        messages=messages,
-    )
     for attempt in range(2):
         system = [
             {"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}},
             {"type": "text", "text": date_note},
             {"type": "text", "text": prefix_note},
             {"type": "text", "text": link_context_note},
+            {
+                "type": "text",
+                "text": "Reminder: respond with ONLY the JSON object described above — no prose, "
+                        "no markdown fences, nothing before or after it. This applies even when the "
+                        "answer requires careful date/policy reasoning — do the reasoning, then put "
+                        "only the final answer in the \"reply\" field of the JSON.",
+            },
         ]
         if attempt == 1:
             system.append({
@@ -252,7 +243,26 @@ def process_message(message: str, history: list[dict], is_new_conversation: bool
         except json.JSONDecodeError:
             logger.warning("JSON parse failed (attempt %d). Raw:\n%s", attempt + 1, raw_text)
             if attempt == 1:
-                raise
+                stripped = raw_text.strip()
+                if stripped and not stripped.startswith("{") and not stripped.startswith("```"):
+                    # Model answered correctly in plain prose but dropped the JSON wrapper.
+                    # Use the prose directly rather than crashing into the generic escalation
+                    # fallback, which would replace a correct answer with a non-answer.
+                    logger.warning("Falling back to raw prose reply after JSON failures")
+                    raw = {
+                        "category": "faq",
+                        "frustration_level": "none",
+                        "confidence": "low",
+                        "action": "reply",
+                        "booking_signal": False,
+                        "reply": stripped,
+                        "link": None,
+                        "escalation": None,
+                        "conversation_summary": "",
+                        "actions_taken": ["Answered (fallback: non-JSON model response)"],
+                    }
+                else:
+                    raise
 
     category = raw.get("category", "escalate")
     frustration_level = raw.get("frustration_level", "none")

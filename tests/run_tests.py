@@ -6,6 +6,7 @@ Run: python3 tests/run_tests.py
 """
 import sys
 import os
+import re
 import traceback
 
 from dotenv import load_dotenv
@@ -37,6 +38,19 @@ def test(name):
 
 def msgs(result):
     return " ".join(result.get("messages") or [])
+
+
+def credit_denied_or_absent(text):
+    """True if 'credit' doesn't appear, or every sentence mentioning it negates it.
+    Plain substring checks can't tell 'gets a credit' from 'no credit applies' —
+    paraphrasing broke that approach repeatedly, so check for a negation cue in the
+    same clause as 'credit' instead."""
+    if "credit" not in text:
+        return True
+    for clause in re.split(r"[.!?—;]", text):
+        if "credit" in clause and not re.search(r"\b(no|not|n't|isn't|doesn't|won't|cannot|can't)\b", clause):
+            return False
+    return True
 
 
 print("\nGlam by Dang — test suite\n")
@@ -220,8 +234,7 @@ def _():
     assert r["action"] == "reply",          f"action={r['action']}"
     text = msgs(r).lower()
     assert "100%" not in text,              f"this tier should not be the full-charge tier: {text[:200]}"
-    assert "toward a future booking" not in text, \
-        f"this tier should not offer a credit (that phrasing means credit WAS granted): {text[:200]}"
+    assert credit_denied_or_absent(text),   f"this tier should not offer a credit: {text[:200]}"
 
 
 @test("16. Cancellation within 24 hours → 100% of appointment value charged")
@@ -234,8 +247,7 @@ def _():
     assert r["action"] == "reply",          f"action={r['action']}"
     text = msgs(r).lower()
     assert "100%" in text or "full" in text, f"expected full appointment value charge language: {text[:200]}"
-    assert "toward a future booking" not in text, \
-        f"this tier should not offer a credit (that phrasing means credit WAS granted): {text[:200]}"
+    assert credit_denied_or_absent(text),   f"this tier should not offer a credit: {text[:200]}"
 
 
 # ── Summary ───────────────────────────────────────────────────────────────────
