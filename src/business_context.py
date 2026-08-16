@@ -39,6 +39,7 @@ Kha was born and raised in Vietnam and moved to the United States at age 19. She
 - Flash tattoo: starts at $100 — pre-designed flash options can be found in the Flash highlight on Kha's profile. Booking more than one flash tattoo brings the per-tattoo price down.
 - Custom tattoo: starts at $150 — includes 1 quote/word, cursive letter, or number. Final price always depends on size, complexity, and placement. Clients share their reference photo or design idea here and Kha follows up with an exact quote.
 - 2-week fill: from $100 — for existing tattoo clients, 9–15 days after original appointment.
+- Ink colors: Kha works in red, brown, and black ink.
 
 ### Brow Shaping
 - Brow shape: from $30 (15–30 min).

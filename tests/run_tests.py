@@ -211,6 +211,16 @@ def _():
     assert "30" in text,                    "missing $30"
 
 
+@test("13b. Tattoo ink colors → red, brown, black")
+def _():
+    r = process_message("what colors of ink do you do tattoos in?", [], is_new_conversation=True)
+    assert r["action"] == "reply",          f"action={r['action']}"
+    text = msgs(r).lower()
+    assert "red" in text,                   f"missing red: {text[:200]}"
+    assert "brown" in text,                 f"missing brown: {text[:200]}"
+    assert "black" in text,                 f"missing black: {text[:200]}"
+
+
 @test("14. Cancellation 7+ days out → credit, not a cash refund, no full charge")
 def _():
     r = process_message(
