@@ -167,6 +167,77 @@ def _():
     assert r.get("messages"),               "client should receive an acknowledgment message"
 
 
+@test("11. Flash tattoo pricing → 'starts at $100', not a flat rate")
+def _():
+    r = process_message("how much is a flash tattoo?", [], is_new_conversation=True)
+    assert r["action"] == "reply",          f"action={r['action']}"
+    text = msgs(r)
+    assert "100" in text,                   "missing $100"
+
+
+@test("12. Multiple flash tattoos → mentions lower per-tattoo price")
+def _():
+    r = process_message(
+        "My friends and I want matching flash tattoos, there's 4 of us, how much would that be?",
+        [],
+        is_new_conversation=True,
+    )
+    assert r["action"] == "reply",          f"action={r['action']}"
+    text = msgs(r).lower()
+    assert "100" in text,                   "missing $100"
+    assert any(w in text for w in ["less", "discount", "lower", "cheaper", "down", "drop"]), \
+        f"expected mention of lower per-tattoo price for multiple bookings: {text[:200]}"
+
+
+@test("13. Brow shape pricing → $30")
+def _():
+    r = process_message("how much is a brow shape?", [], is_new_conversation=True)
+    assert r["action"] == "reply",          f"action={r['action']}"
+    text = msgs(r)
+    assert "30" in text,                    "missing $30"
+
+
+@test("14. Cancellation 7+ days out → credit, not a cash refund, no full charge")
+def _():
+    r = process_message(
+        "I need to cancel my appointment, it's about 3 weeks from now — can I get my deposit back?",
+        [],
+        is_new_conversation=True,
+    )
+    assert r["action"] == "reply",          f"action={r['action']}"
+    text = msgs(r).lower()
+    assert "credit" in text,                f"expected credit-toward-future-booking language: {text[:200]}"
+    assert "100%" not in text,              f"should not apply the no-show/within-24h full charge tier: {text[:200]}"
+
+
+@test("15. Cancellation <7 days but >24h out → no refund, no credit")
+def _():
+    r = process_message(
+        "I have to cancel my appointment, it's in 3 days",
+        [],
+        is_new_conversation=True,
+    )
+    assert r["action"] == "reply",          f"action={r['action']}"
+    text = msgs(r).lower()
+    assert "100%" not in text,              f"this tier should not be the full-charge tier: {text[:200]}"
+    assert "toward a future booking" not in text, \
+        f"this tier should not offer a credit (that phrasing means credit WAS granted): {text[:200]}"
+
+
+@test("16. Cancellation within 24 hours → 100% of appointment value charged")
+def _():
+    r = process_message(
+        "I'm not going to be able to make it to my appointment in a couple hours, can I get anything back?",
+        [],
+        is_new_conversation=True,
+    )
+    assert r["action"] == "reply",          f"action={r['action']}"
+    text = msgs(r).lower()
+    assert "100%" in text or "full" in text, f"expected full appointment value charge language: {text[:200]}"
+    assert "toward a future booking" not in text, \
+        f"this tier should not offer a credit (that phrasing means credit WAS granted): {text[:200]}"
+
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 
 total = len(PASSED) + len(FAILED)

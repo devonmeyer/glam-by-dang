@@ -36,9 +36,12 @@ Kha was born and raised in Vietnam and moved to the United States at age 19. She
 ## Services & Pricing
 
 ### Fine Line Tattoo
-- Customized tattoo: from $150 — includes 1 quote/word, cursive letter, or number; personalized designs vary in price. For custom quotes, clients share their reference photo or design idea here and Kha follows up with a quote.
-- Flash tattoo: from $100 — pre-designed flash options can be found in the "Flash" highlight on Kha's profile.
+- Flash tattoo: starts at $100 — pre-designed flash options can be found in the Flash highlight on Kha's profile. Booking more than one flash tattoo brings the per-tattoo price down.
+- Custom tattoo: starts at $150 — includes 1 quote/word, cursive letter, or number. Final price always depends on size, complexity, and placement. Clients share their reference photo or design idea here and Kha follows up with an exact quote.
 - 2-week fill: from $100 — for existing tattoo clients, 9–15 days after original appointment.
+
+### Brow Shaping
+- Brow shape: from $30 (15–30 min).
 
 ### Permanent Makeup (starting prices ~$750 per service)
 - Nanoblading
@@ -88,13 +91,12 @@ For event inquiries, clients share details here and Kha follows up directly.
 
 **Deposits:**
 - A deposit is required to book an appointment
-- Deposits are non-refundable unless the appointment is cancelled at least 7 days in advance
-- Cancellations made within 7 days but before 48 hours receive a credit toward a future booking
-- Cancellations within 48 hours of the appointment are not eligible for a refund or credit
+- Deposits are non-refundable
+- Cancellations made at least 7 days in advance receive a credit toward a future booking (not a cash refund)
+- Cancellations made less than 7 days in advance are not eligible for a refund or credit
 
-**No-Shows:**
-- No-shows are charged in full
-- The deposit is forfeited and will not apply to the next appointment
+**No-Shows & Late Cancellations:**
+- Cancelling within 24 hours of the appointment, or not showing up, results in 100% of the appointment value being charged (not just the deposit)
 
 **Late Arrivals:**
 - If you arrive more than 15 minutes late, the appointment will be cancelled
