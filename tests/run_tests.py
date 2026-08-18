@@ -189,10 +189,10 @@ def _():
     assert "100" in text,                   "missing $100"
 
 
-@test("12. Multiple flash tattoos → mentions lower per-tattoo price")
+@test("12. Multiple flash tattoos, same person → mentions lower per-tattoo price")
 def _():
     r = process_message(
-        "My friends and I want matching flash tattoos, there's 4 of us, how much would that be?",
+        "I want to get 3 flash tattoos on my arm in one sitting, how much would that be?",
         [],
         is_new_conversation=True,
     )
@@ -201,6 +201,31 @@ def _():
     assert "100" in text,                   "missing $100"
     assert any(w in text for w in ["less", "discount", "lower", "cheaper", "down", "drop"]), \
         f"expected mention of lower per-tattoo price for multiple bookings: {text[:200]}"
+
+
+@test("12b. Group of people wanting tattoos → each books separately")
+def _():
+    r = process_message(
+        "My friends and I want matching flash tattoos, there's 4 of us, how much would that be?",
+        [],
+        is_new_conversation=True,
+    )
+    assert r["action"] == "reply",          f"action={r['action']}"
+    text = msgs(r).lower()
+    assert any(w in text for w in ["separate appointment", "own appointment", "each book", "individually", "per person"]), \
+        f"expected each person to be told to book their own appointment: {text[:200]}"
+
+
+@test("12c. Flash tattoo off arms/legs → priced as custom, not flash")
+def _():
+    r = process_message(
+        "Can I get a flash tattoo on my ribs?",
+        [],
+        is_new_conversation=True,
+    )
+    assert r["action"] == "reply",          f"action={r['action']}"
+    text = msgs(r).lower()
+    assert "150" in text,                   f"expected custom pricing ($150) since ribs isn't arms/legs: {text[:200]}"
 
 
 @test("13. Brow shape pricing → $30")
