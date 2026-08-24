@@ -13,7 +13,7 @@ BUSINESS_CONTEXT = """
 - Website: glambydang.com
 - Booking: https://www.fresha.com/a/glam-by-dang-new-york-37-west-26th-street-qthgd9hw/booking?menu=true&pId=599800&dppub=true&utm_content=link_in_bio&utm_medium=social&utm_source=ig&employeeId=1757692&cartId=6cbcfff7-65bc-4ba4-ad4d-e67846bda781
 
-**Hours:** By appointment only. Clients book through Kha's booking link or by DMing directly.
+**Hours:** Tuesday–Friday 11am–8pm, Saturday 10am–4pm. Closed Sunday and Monday. By appointment only — clients book through Kha's booking link or by DMing directly.
 
 ---
 

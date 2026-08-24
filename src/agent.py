@@ -1,12 +1,30 @@
 import json
 import re
 import logging
-from datetime import datetime
+from datetime import datetime, time
 from anthropic import Anthropic
 from business_context import BUSINESS_CONTEXT
 
 logger = logging.getLogger(__name__)
 client = Anthropic()
+
+# Studio hours, in America/New_York local time. Closed Sunday and Monday.
+BUSINESS_HOURS = {
+    "Tuesday": (time(11, 0), time(20, 0)),
+    "Wednesday": (time(11, 0), time(20, 0)),
+    "Thursday": (time(11, 0), time(20, 0)),
+    "Friday": (time(11, 0), time(20, 0)),
+    "Saturday": (time(10, 0), time(16, 0)),
+}
+BUSINESS_HOURS_TEXT = "Tue–Fri 11am–8pm, Sat 10am–4pm"
+
+
+def is_within_business_hours(now_nyc: datetime) -> bool:
+    hours = BUSINESS_HOURS.get(now_nyc.strftime("%A"))
+    if not hours:
+        return False
+    open_t, close_t = hours
+    return open_t <= now_nyc.time() < close_t
 
 BOOKING_LINK = (
     "https://www.fresha.com/a/glam-by-dang-new-york-37-west-26th-street-qthgd9hw"
@@ -18,6 +36,7 @@ GOOGLE_REVIEW_LINK = (
     "https://search.google.com/local/writereview?placeid=ChIJRfD3UjtZwokRWXQjp393i-k"
 )
 ESCALATION_REPLY = "I'll make sure Kha sees this and gets back to you! 🤍"
+OUT_OF_HOURS_NOTE = f"Kha's hours are {BUSINESS_HOURS_TEXT} — she'll follow up personally when she's back."
 MAX_HISTORY = 20
 
 # Large static block — eligible for prompt caching after first call
@@ -28,6 +47,8 @@ SYSTEM_PROMPT = f"""You are the personal assistant for Kha Fitzpatrick, who runs
 - Never open a reply by riffing on the customer's message — no "That sounds exciting!", "What a great question!", "That's such a fun idea!", "How exciting!", "How sweet!", "How cute!", "What a fun [X]!", or any variation. This includes warmth directed at the situation or topic itself, not just at questions. A client saying they want matching tattoos with their mom gets the same direct opener as any other booking question: "Flash tattoos start at $100 per person..." — not "How sweet that you want matching tattoos!" Get straight to the substance
 - Self-contained replies only — no filler sign-offs like "Hope that helps!", "Feel free to reach out!", "Don't hesitate to ask!", or "Let me know if you have any other questions!" — the conversation is already open, those phrases add nothing
 - No making conversation — don't volunteer warmth about the topic itself, don't ask follow-up questions or invite more dialogue unless it's genuinely needed to answer the question
+- Answer, then stop. No wrap-up or encouragement sentence tacked on after the factual answer ("that works out nicely!", "grab your spot whenever you're ready!", "you can check that out too!") — once the question is answered, the reply is done
+- Every sentence must earn its place: only what directly answers the question. If a sentence could be deleted without losing information the client asked for, delete it
 - Conversational but professional; never stiff or robotic
 - Speak in first person: "I" and "me" — never "we" or "us"
 - A single tasteful emoji when it feels natural; don't force it
@@ -59,9 +80,9 @@ SYSTEM_PROMPT = f"""You are the personal assistant for Kha Fitzpatrick, who runs
 - Never mention WhatsApp
 - You are replying inside an Instagram DM from @glambydangnyc — the client is already here. Never say "DM us", "send us a message", "reach out on Instagram", "message us at @glambydangnyc", or anything that implies they need to go somewhere else to contact Kha. If you need more info or they want Kha to review something, say "just share it here and I'll make sure Kha sees it" or "feel free to share the details here"
 - For location questions, calibrate detail to context: a general question ("where in NYC are you?", "what neighborhood?") gets a general answer ("Kha is in the Flatiron District in Manhattan, on West 26th Street"). A question that implies they're actively trying to find the building ("what's the exact address?", "I'm nearby", context suggests an appointment today) gets the full detail: 37 West 26th St, 8th floor, Suite 808 — with the GPS warning about the old 36th St address and the instruction to ring #808
-- Keep replies to 2–4 sentences max
+- Keep replies to 1–2 sentences. 3 only when the answer genuinely has that many distinct parts (e.g. a cancellation policy outcome) — never for padding
 - Answer exactly what was asked — don't volunteer extra details like session length, add-ons, or related services unless the client asks
-- If the client mentions an event — a wedding, bachelorette, birthday, corporate event, party, or any group celebration — naturally mention Kha's tattoo party offering as something they might love. Keep it light and enthusiastic, not pushy. Example: "Oh, and if you're planning something special, Kha actually does tattoo parties for events — it's such a fun addition to a wedding or bachelorette! Just reply here if you'd like to know more."
+- If the client mentions an event — a wedding, bachelorette, birthday, corporate event, party, or any group celebration — add one short sentence mentioning Kha's tattoo party offering. Example: "Kha also does tattoo parties for events, if that's of interest — just reply here for details."
 - When a client asks about cancelling and mentions a specific date/time: carefully calculate the exact number of hours between now and the appointment using the current NYC date and time provided. Then apply the correct policy tier:
   • 7 days or more away → deposit is not refunded in cash, but converts to a credit toward a future booking
   • Less than 7 days away (but 24 hours or more) → no refund and no credit
@@ -173,6 +194,7 @@ def process_message(message: str, history: list[dict], is_new_conversation: bool
         for i in range(8)
     )
     today = now_nyc.strftime("%A, %B %-d, %Y at %-I:%M %p %Z")
+    outside_business_hours = not is_within_business_hours(now_nyc)
     # Pre-classify each upcoming day against cancellation policy thresholds
     # so the model never has to do date arithmetic itself
     now_ts = now_nyc.timestamp()
@@ -305,6 +327,8 @@ def process_message(message: str, history: list[dict], is_new_conversation: bool
         msgs = [reply] if reply else []
         if link:
             msgs.append(link)
+        if msgs and outside_business_hours:
+            msgs.append(OUT_OF_HOURS_NOTE)
         return {
             "action": "reply",
             "category": category,
@@ -317,6 +341,8 @@ def process_message(message: str, history: list[dict], is_new_conversation: bool
 
     # escalate
     msgs = [reply] if reply else [ESCALATION_REPLY]
+    if outside_business_hours:
+        msgs.append(OUT_OF_HOURS_NOTE)
     return {
         "action": "escalate",
         "category": category,
