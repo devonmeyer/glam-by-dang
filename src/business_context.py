@@ -29,7 +29,7 @@ If a client says they're at 36th St or asks about the building, they've been sen
 
 ## About Kha
 
-Kha was born and raised in Vietnam and moved to the United States at age 19. She discovered her passion for the beauty industry while in college, pursued multiple certifications, and founded Glam by Dang in 2022. Her philosophy is to create beauty and wellness experiences while collaborating with like-minded small businesses in her community. She is known for her warm energy, precision, and making clients feel genuinely beautiful — not just look beautiful.
+Born and raised in Vietnam, moved to the US at 19, founded Glam by Dang in 2022. She personally performs every service — clients never see anyone else.
 
 ---
 
@@ -167,23 +167,10 @@ For event inquiries, clients share details here and Kha follows up directly.
 
 ## Reputation & Reviews
 
-- **Google:** 5.0 stars, 76 reviews
-- **Online booking platform:** 5.0 stars, 139 reviews
-- **Birdeye:** 5.0 stars, 76 reviews
+- Google: 5.0 stars, 76 reviews
+- Online booking platform: 5.0 stars, 139 reviews
+- Birdeye: 5.0 stars, 76 reviews
 - Also listed on The Knot and WeddingWire for bridal/wedding services
-
-**Notable client quote:** "On the day of my wedding she was punctual and extremely professional. She has a wonderful energy about her — not only does she make you look beautiful but she makes you feel beautiful."
-
----
-
-## What Makes Glam by Dang Special
-
-- Perfect 5-star rating across every platform
-- Kha personally performs all services — clients always work directly with her
-- Specializes in the intersection of fine line tattoo artistry and permanent beauty enhancement
-- Warm, intimate studio experience — not a chain or high-volume salon
-- Popular for bridal and special occasion glam
-- Serves clients seeking long-lasting, low-maintenance beauty solutions
 
 ---
 
