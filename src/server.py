@@ -45,7 +45,8 @@ GRAPH_API_BASE = "https://graph.instagram.com/v25.0"
 ET = ZoneInfo("America/New_York")
 
 TOKEN_FILE = Path("/data/meta_token.txt")
-TOKEN_REFRESH_INTERVAL = 45 * 24 * 60 * 60   # refresh every 45 days (token lasts 60)
+TOKEN_REFRESH_INTERVAL = 45 * 24 * 60 * 60    # refresh every 45 days (token lasts 60)
+TOKEN_REFRESH_RETRY_INTERVAL = 6 * 60 * 60    # back off 6h between failed refresh attempts
 
 # Mutable token — updated by the auto-refresh background task
 _access_token: str = META_PAGE_ACCESS_TOKEN
@@ -58,6 +59,13 @@ def _load_persisted_token() -> None:
         if token:
             _access_token = token
             logger.info("Loaded access token from %s", TOKEN_FILE)
+    elif _access_token:
+        # First run with an env-provided token and nothing persisted yet — write it now so
+        # the refresh schedule below has a real "issued at" timestamp to measure from,
+        # instead of assuming it's already due the moment the process restarts.
+        TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+        TOKEN_FILE.write_text(_access_token)
+        logger.info("Persisted initial access token to %s", TOKEN_FILE)
     if not _access_token:
         logger.warning("No META_PAGE_ACCESS_TOKEN set — Instagram features disabled")
 
@@ -66,12 +74,21 @@ def _get_token() -> str:
     return _access_token
 
 
-async def _refresh_instagram_token() -> None:
+def _seconds_until_next_refresh() -> float:
+    """Time until the persisted token is due for refresh, based on the file's actual
+    age rather than process uptime — so a redeploy never resets the countdown."""
+    if not TOKEN_FILE.exists():
+        return 0.0
+    age = time.time() - TOKEN_FILE.stat().st_mtime
+    return max(0.0, TOKEN_REFRESH_INTERVAL - age)
+
+
+async def _refresh_instagram_token() -> bool:
     global _access_token
     token = _access_token
     if not token:
         logger.warning("Token refresh skipped — no token set")
-        return
+        return False
     async with httpx.AsyncClient() as http:
         resp = await http.get(
             "https://graph.instagram.com/refresh_access_token",
@@ -79,15 +96,16 @@ async def _refresh_instagram_token() -> None:
         )
     if resp.status_code != 200:
         logger.error("Token refresh failed %s: %s", resp.status_code, resp.text)
-        return
+        return False
     new_token = resp.json().get("access_token", "")
     if not new_token:
         logger.error("Token refresh returned no access_token: %s", resp.text)
-        return
+        return False
     _access_token = new_token
     TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
     TOKEN_FILE.write_text(new_token)
     logger.info("Instagram access token refreshed and persisted")
+    return True
 
 BOT_SENT_TTL = 24 * 60 * 60
 bot_sent_ids: dict[str, float] = {}        # message_id → sent_timestamp
@@ -571,13 +589,16 @@ async def _daily_summary_scheduler() -> None:
 
 
 async def _token_refresh_scheduler() -> None:
-    await asyncio.sleep(TOKEN_REFRESH_INTERVAL)
     while True:
+        await asyncio.sleep(_seconds_until_next_refresh())
         try:
-            await _refresh_instagram_token()
+            ok = await _refresh_instagram_token()
         except Exception as e:
             logger.error("Token refresh failed: %s", e, exc_info=True)
-        await asyncio.sleep(TOKEN_REFRESH_INTERVAL)
+            ok = False
+        if not ok:
+            # Don't hot-loop against a stale file mtime — wait before checking again.
+            await asyncio.sleep(TOKEN_REFRESH_RETRY_INTERVAL)
 
 
 @app.post("/trigger-summary")
