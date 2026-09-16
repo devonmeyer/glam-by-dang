@@ -37,8 +37,8 @@ Born and raised in Vietnam, moved to the US at 19, founded Glam by Dang in 2022.
 
 ### Fine Line Tattoo
 - Flash tattoo: starts at $100 — pre-designed flash options can be found in the Flash highlight on Kha's profile. Booking more than one flash tattoo brings the per-tattoo price down.
-- Flash tattoo placement: arms and legs only. A flash design placed anywhere else (ribs, hands, feet, neck, back, etc.) is priced and booked as a custom tattoo instead, starting at $150 — even though it's a pre-made design.
-- Custom tattoo: starts at $150 — includes 1 quote/word, cursive letter, or number. Final price always depends on size, complexity, and placement. Clients share their reference photo or design idea here and Kha follows up with an exact quote.
+- Flash tattoo placement: arms and legs only. A flash design placed anywhere else (ribs, hands, feet, neck, back, etc.) is priced and booked as a custom tattoo instead, starting at $200 — even though it's a pre-made design.
+- Custom tattoo: starts at $200 — includes 1 quote/word, cursive letter, or number. Final price always depends on size, complexity, and placement. Clients share their reference photo or design idea here and Kha follows up with an exact quote.
 - 2-week fill: from $100 — for existing tattoo clients, 9–15 days after original appointment.
 - Ink colors: Kha works in red, brown, and black ink.
 
