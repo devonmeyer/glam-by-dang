@@ -19,6 +19,8 @@ from dotenv import load_dotenv
 from pathlib import Path
 import httpx
 
+from instagram_token import TokenStore
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s — %(message)s",
@@ -45,47 +47,25 @@ GRAPH_API_BASE = "https://graph.instagram.com/v25.0"
 ET = ZoneInfo("America/New_York")
 
 TOKEN_FILE = Path("/data/meta_token.txt")
-TOKEN_REFRESH_INTERVAL = 45 * 24 * 60 * 60    # refresh every 45 days (token lasts 60)
 TOKEN_REFRESH_RETRY_INTERVAL = 6 * 60 * 60    # back off 6h between failed refresh attempts
 
-# Mutable token — updated by the auto-refresh background task
-_access_token: str = META_PAGE_ACCESS_TOKEN
-
-
-def _load_persisted_token() -> None:
-    global _access_token
-    if TOKEN_FILE.exists():
-        token = TOKEN_FILE.read_text().strip()
-        if token:
-            _access_token = token
-            logger.info("Loaded access token from %s", TOKEN_FILE)
-    elif _access_token:
-        # First run with an env-provided token and nothing persisted yet — write it now so
-        # the refresh schedule below has a real "issued at" timestamp to measure from,
-        # instead of assuming it's already due the moment the process restarts.
-        TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
-        TOKEN_FILE.write_text(_access_token)
-        logger.info("Persisted initial access token to %s", TOKEN_FILE)
-    if not _access_token:
-        logger.warning("No META_PAGE_ACCESS_TOKEN set — Instagram features disabled")
+# Token state — loaded at startup and updated by the auto-refresh background task
+token_store = TokenStore(TOKEN_FILE, META_PAGE_ACCESS_TOKEN)
 
 
 def _get_token() -> str:
-    return _access_token
+    return token_store.token
 
 
-def _seconds_until_next_refresh() -> float:
-    """Time until the persisted token is due for refresh, based on the file's actual
-    age rather than process uptime — so a redeploy never resets the countdown."""
-    if not TOKEN_FILE.exists():
-        return 0.0
-    age = time.time() - TOKEN_FILE.stat().st_mtime
-    return max(0.0, TOKEN_REFRESH_INTERVAL - age)
+def _note_auth_failure(resp: httpx.Response, action: str) -> None:
+    if resp.status_code == 401:
+        msg = f"Instagram rejected the access token (401) during {action}"
+        logger.error("%s — set a fresh META_PAGE_ACCESS_TOKEN in Railway", msg)
+        token_store.record_failure(msg)
 
 
 async def _refresh_instagram_token() -> bool:
-    global _access_token
-    token = _access_token
+    token = token_store.token
     if not token:
         logger.warning("Token refresh skipped — no token set")
         return False
@@ -96,15 +76,16 @@ async def _refresh_instagram_token() -> bool:
         )
     if resp.status_code != 200:
         logger.error("Token refresh failed %s: %s", resp.status_code, resp.text)
+        token_store.record_failure(f"refresh failed with HTTP {resp.status_code}")
         return False
-    new_token = resp.json().get("access_token", "")
+    data = resp.json()
+    new_token = data.get("access_token", "")
     if not new_token:
         logger.error("Token refresh returned no access_token: %s", resp.text)
+        token_store.record_failure("refresh returned no token")
         return False
-    _access_token = new_token
-    TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
-    TOKEN_FILE.write_text(new_token)
-    logger.info("Instagram access token refreshed and persisted")
+    token_store.apply_refresh(new_token, data.get("expires_in"))
+    logger.info("Instagram access token refreshed and persisted (expires in %ss)", data.get("expires_in"))
     return True
 
 BOT_SENT_TTL = 24 * 60 * 60
@@ -133,7 +114,7 @@ daily_log: dict[str, ConversationRecord] = {}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    _load_persisted_token()
+    token_store.load()
     asyncio.create_task(_daily_summary_scheduler())
     asyncio.create_task(_token_refresh_scheduler())
     yield
@@ -327,6 +308,7 @@ async def _send_instagram_message(recipient_id: str, text: str) -> None:
         )
         if resp.status_code != 200:
             logger.error("Instagram send failed %s: %s", resp.status_code, resp.text)
+            _note_auth_failure(resp, "a message send")
         else:
             data = resp.json()
             msg_id = data.get("message_id") or data.get("id")
@@ -370,6 +352,7 @@ async def _fetch_conversation_context(sender_id: str) -> tuple[list[dict], list[
             )
             if resp.status_code != 200:
                 logger.warning("Conversation fetch failed %s: %s", resp.status_code, resp.text)
+                _note_auth_failure(resp, "a conversation fetch")
                 return [], [], None
 
             convos = resp.json().get("data", [])
@@ -520,6 +503,9 @@ async def _build_summary_chunks() -> list[str]:
     if server_start_time > last_summary_time:
         restart_dt = datetime.fromtimestamp(server_start_time, tz=ET)
         restart_note = f"⚠️ Note: The assistant restarted at {restart_dt.strftime('%-I:%M %p ET')} — some conversations before then may be missing.\n\n"
+    token_note = token_store.health_note()
+    if token_note:
+        restart_note = f"{token_note}\n\n{restart_note}"
 
     escalations = [r for r in daily_log.values() if r.is_escalation]
     handled = [r for r in daily_log.values() if not r.is_escalation]
@@ -590,14 +576,14 @@ async def _daily_summary_scheduler() -> None:
 
 async def _token_refresh_scheduler() -> None:
     while True:
-        await asyncio.sleep(_seconds_until_next_refresh())
+        await asyncio.sleep(token_store.seconds_until_refresh())
         try:
             ok = await _refresh_instagram_token()
         except Exception as e:
             logger.error("Token refresh failed: %s", e, exc_info=True)
             ok = False
         if not ok:
-            # Don't hot-loop against a stale file mtime — wait before checking again.
+            # Don't hot-loop against a token that can't be refreshed — wait before retrying.
             await asyncio.sleep(TOKEN_REFRESH_RETRY_INTERVAL)
 
 
