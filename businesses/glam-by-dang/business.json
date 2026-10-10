@@ -16,6 +16,7 @@
   "greeting": "Hi, I'm Mia, Kha's assistant! ",
   "escalation_reply": "I'll make sure Kha sees this and gets back to you! 🤍",
   "out_of_hours_note": "Kha's hours are Tue–Fri 11am–8pm, Sat 10am–4pm — she'll follow up personally when she's back.",
+  "summary_email": "glambydang@gmail.com",
   "summary_hour": 10,
   "cancellation_tiers": [
     {"min_hours": 168, "status": "credit eligible toward a future booking (7+ days away) — not a cash refund"},
