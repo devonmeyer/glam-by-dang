@@ -34,6 +34,7 @@ def _reset():
     server._business_id = None
     server.META_APP_SECRET = SECRET
     server._handle_instagram_dm = _record_dm
+    server._connected_tokens.clear()
     handled.clear()
 
 
@@ -91,13 +92,13 @@ def test_owner_takeover_is_scoped_to_the_account_it_happened_on():
     _post([_dm(KHA_ACCOUNT)])
     friend = server.store.ensure_business("friend", "Friend Studio")
     server.store.register_account(OTHER_ACCOUNT, friend)
-    original = server._token_store_for
-    server._token_store_for = lambda slug: server.token_store
+    original = server._tokens_for
+    server._tokens_for = lambda account_id, slug: server.token_store
     server.load_business = lambda slug: server.default_business()  # no friend folder in the repo
     try:
         _post([_echo(OTHER_ACCOUNT)])
     finally:
-        server._token_store_for = original
+        server._tokens_for = original
         server.load_business = __import__("business").load_business
     assert server.store.owner_replied_within(friend, "555", 3600)
     assert not server.store.owner_replied_within(server.business_id(), "555", 3600)

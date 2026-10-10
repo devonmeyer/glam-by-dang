@@ -27,6 +27,9 @@ def _fingerprint(token: str) -> str:
 
 
 class TokenStore:
+    # What to tell the owner of this token to do when it stops working
+    recovery_hint = "set a fresh META_PAGE_ACCESS_TOKEN in Railway"
+
     def __init__(self, path: Path, env_token: str, clock: Callable[[], float] = time.time):
         self.path = path
         self.env_token = env_token.strip()
@@ -83,7 +86,7 @@ class TokenStore:
             return ""
         now = self.clock()
         if self.expires_at is not None and self.expires_at <= now:
-            return "⚠️ Instagram token has expired — set a fresh META_PAGE_ACCESS_TOKEN in Railway."
+            return f"⚠️ Instagram token has expired — {self.recovery_hint}."
         if self.last_error:
             return f"⚠️ Instagram token problem: {self.last_error}{self._expiry_suffix()}"
         if self.expires_at is not None and self.expires_at - now < EXPIRY_WARNING_WINDOW:

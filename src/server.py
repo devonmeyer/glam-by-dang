@@ -6,19 +6,24 @@ import logging
 import hmac
 import hashlib
 import json
+import secrets
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Optional
 from zoneinfo import ZoneInfo
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, Form, Header, HTTPException, Query, Request
+from html import escape
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from pathlib import Path
 import httpx
 
+import instagram_connect
+from connected_tokens import ConnectedTokenStore, crypto_configured
+from instagram_connect import ConnectError
 from instagram_token import TokenStore
 from business import Business, business_slugs, default_business, load_business
 from email_sender import email_configured, send_email
@@ -87,8 +92,8 @@ async def _check_token_health() -> None:
         logger.warning(note)
 
 
-async def _refresh_instagram_token() -> bool:
-    token = token_store.token
+async def _refresh_instagram_token(tokens: TokenStore = token_store) -> bool:
+    token = tokens.token
     if not token:
         logger.warning("Token refresh skipped — no token set")
         return False
@@ -99,15 +104,15 @@ async def _refresh_instagram_token() -> bool:
         )
     if resp.status_code != 200:
         logger.error("Token refresh failed %s: %s", resp.status_code, resp.text)
-        token_store.record_failure(f"refresh failed with HTTP {resp.status_code}")
+        tokens.record_failure(f"refresh failed with HTTP {resp.status_code}")
         return False
     data = resp.json()
     new_token = data.get("access_token", "")
     if not new_token:
         logger.error("Token refresh returned no access_token: %s", resp.text)
-        token_store.record_failure("refresh returned no token")
+        tokens.record_failure("refresh returned no token")
         return False
-    token_store.apply_refresh(new_token, data.get("expires_in"))
+    tokens.apply_refresh(new_token, data.get("expires_in"))
     logger.info("Instagram access token refreshed and persisted (expires in %ss)", data.get("expires_in"))
     return True
 
@@ -141,14 +146,31 @@ class Account:
         return self.tokens.token.strip()
 
 
-def _token_store_for(slug: str) -> Optional[TokenStore]:
-    # Only Kha's token exists until businesses connect through Instagram login.
+_connected_tokens: dict[str, ConnectedTokenStore] = {}
+
+
+def _tokens_for(account_id: str, slug: str) -> Optional[TokenStore]:
+    """An account connected through Instagram login uses its own saved token; Kha's
+    account falls back to the META_PAGE_ACCESS_TOKEN chain until she reconnects."""
+    if account_id in _connected_tokens:
+        return _connected_tokens[account_id]
+    if account_id and store.load_token(account_id):
+        tokens = ConnectedTokenStore(store, account_id)
+        tokens.load()
+        _connected_tokens[account_id] = tokens
+        return tokens
     return token_store if slug == default_business().slug else None
+
+
+def _business_tokens(business: Business) -> Optional[TokenStore]:
+    accounts = store.accounts_for_business(store.ensure_business(business.slug, business.name))
+    return _tokens_for(accounts[0] if accounts else "", business.slug)
 
 
 def default_account() -> Account:
     accounts = store.accounts_for_business(business_id())
-    return Account(accounts[0] if accounts else "", default_business(), business_id(), token_store)
+    return Account(accounts[0] if accounts else "", default_business(), business_id(),
+                   _business_tokens(default_business()) or token_store)
 
 
 def _account_for(account_id: str) -> Optional[Account]:
@@ -162,7 +184,7 @@ def _account_for(account_id: str) -> Optional[Account]:
         logger.info("Instagram account %s registered to %s", account_id, default_business().slug)
         found = (business_id(), default_business().slug)
     biz_id, slug = found
-    tokens = _token_store_for(slug)
+    tokens = _tokens_for(account_id, slug)
     if tokens is None:
         logger.warning("No Instagram token for business %s — ignoring account %s", slug, account_id)
         return None
@@ -175,6 +197,7 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(_check_token_health())
     asyncio.create_task(_daily_summary_scheduler())
     asyncio.create_task(_token_refresh_scheduler())
+    asyncio.create_task(_connected_token_refresh_scheduler())
     yield
 
 
@@ -547,7 +570,7 @@ async def _handle_instagram_dm(account: Account, sender_id: str, text: str) -> N
 def _summary_lines(business: Business, records: list[ConversationRecord]) -> list[str]:
     date_str = datetime.now(business.tz).strftime("%A, %B %-d")
 
-    tokens = _token_store_for(business.slug)
+    tokens = _business_tokens(business)
     token_note = tokens.health_note() if tokens else ""
     if token_note:
         token_note = f"{token_note}\n\n"
@@ -653,6 +676,21 @@ async def _token_refresh_scheduler() -> None:
             await asyncio.sleep(TOKEN_REFRESH_RETRY_INTERVAL)
 
 
+async def _connected_token_refresh_scheduler() -> None:
+    """Hourly: refresh any connected account's token that is due (10 days before expiry)."""
+    while True:
+        for account_id in store.connected_accounts():
+            found = store.account_business(account_id)
+            tokens = _tokens_for(account_id, found[1] if found else "")
+            if tokens is None or tokens.seconds_until_refresh() > 0:
+                continue
+            try:
+                await _refresh_instagram_token(tokens)
+            except Exception as e:
+                logger.error("Token refresh for %s failed: %s", account_id, e, exc_info=True)
+        await asyncio.sleep(60 * 60)
+
+
 @app.post("/trigger-summary")
 async def trigger_summary():
     await _send_daily_summary()
@@ -746,6 +784,144 @@ async def instagram_webhook(request: Request):
             asyncio.create_task(_handle_instagram_dm(account, sender_id, text))
 
     return {"status": "ok"}
+
+
+# --- Connecting a business's Instagram (Business Login for Instagram) ---
+
+INVITE_TTL = 7 * 24 * 60 * 60
+
+
+def _hash_invite(invite: str) -> str:
+    return hashlib.sha256(invite.encode()).hexdigest()
+
+
+def _page(title: str, body_html: str, status: int = 200) -> HTMLResponse:
+    return HTMLResponse(status_code=status, content=f"""<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{escape(title)}</title>
+<style>body{{font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem;line-height:1.5;color:#222}}
+a.button{{display:inline-block;background:#222;color:#fff;padding:.75rem 1.25rem;border-radius:.5rem;text-decoration:none}}</style>
+</head><body><h1>{escape(title)}</h1>{body_html}</body></html>""")
+
+
+class InviteRequest(BaseModel):
+    slug: str
+
+
+@app.post("/admin/invites")
+async def create_invite(req: InviteRequest, x_admin_secret: str = Header("")):
+    """Make a one-time link an owner opens to connect their Instagram to a business."""
+    admin_secret = os.environ.get("ADMIN_SECRET", "")
+    if not admin_secret or not hmac.compare_digest(x_admin_secret, admin_secret):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if req.slug not in business_slugs():
+        raise HTTPException(status_code=404, detail=f"No businesses/{req.slug}/ folder")
+    business = load_business(req.slug)
+    invite = secrets.token_urlsafe(24)
+    expires_at = time.time() + INVITE_TTL
+    store.create_invite(_hash_invite(invite), store.ensure_business(business.slug, business.name), expires_at)
+    logger.info("Connect invite created for %s", business.slug)
+    return {"url": f"{instagram_connect.base_url()}/connect?invite={invite}",
+            "expires_at": datetime.fromtimestamp(expires_at, tz=ET).isoformat()}
+
+
+@app.get("/connect")
+async def connect_page(invite: str = ""):
+    found = store.open_invite(_hash_invite(invite)) if invite else None
+    if not found:
+        return _page("This link has expired", "<p>Ask for a new connect link.</p>", 404)
+    if not instagram_connect.connect_configured() or not crypto_configured():
+        logger.error("Connect flow not configured (INSTAGRAM_APP_ID, META_APP_SECRET, PUBLIC_BASE_URL, TOKEN_ENCRYPTION_KEY)")
+        return _page("Not available yet", "<p>Connecting isn't set up yet. Please try again later.</p>", 503)
+    business = load_business(found[1])
+    url = instagram_connect.authorize_url(state=invite)
+    return _page(
+        f"Connect {business.name} to {business.assistant_name}",
+        f"<p>{escape(business.assistant_name)} will answer Instagram DMs for "
+        f"{escape(business.name)} and hand anything sensitive to {escape(business.owner_name)}.</p>"
+        f"<p>Log in with the business's Instagram account and allow message access.</p>"
+        f'<p><a class="button" href="{escape(url)}">Connect Instagram</a></p>',
+    )
+
+
+@app.get("/auth/instagram/callback")
+async def instagram_callback(code: str = "", state: str = "", error_description: str = ""):
+    invite_hash = _hash_invite(state) if state else ""
+    found = store.open_invite(invite_hash) if state else None
+    if not found:
+        return _page("This link has expired", "<p>Ask for a new connect link.</p>", 404)
+    if not code:
+        reason = escape(error_description) or "Instagram access wasn't allowed."
+        return _page("Not connected", f"<p>{reason}</p><p>You can open your link again to retry.</p>", 400)
+    biz_id, slug = found
+    business = load_business(slug)
+    try:
+        async with httpx.AsyncClient(timeout=20) as http:
+            # Instagram appends "#_" to the code in the redirect; it is not part of the code.
+            short_token = await instagram_connect.exchange_code(http, code.removesuffix("#_"))
+            token, expires_in = await instagram_connect.long_lived(http, short_token)
+            me = await instagram_connect.whoami(http, token)
+            await instagram_connect.subscribe(http, token)
+    except ConnectError as e:
+        logger.error("Connect for %s failed: %s", slug, e)
+        return _page("Not connected", f"<p>{escape(str(e))}</p><p>You can open your link again to retry.</p>", 502)
+    except httpx.HTTPError as e:
+        logger.error("Connect for %s could not reach Instagram: %s", slug, e)
+        return _page("Not connected", "<p>Couldn't reach Instagram. Open your link again to retry.</p>", 502)
+
+    account_id = str(me["user_id"])
+    store.register_account(account_id, biz_id)
+    tokens = ConnectedTokenStore(store, account_id)
+    tokens.save_new(token, expires_in, str(me.get("id", "")), me.get("username", ""))
+    _connected_tokens[account_id] = tokens
+    store.use_invite(invite_hash, account_id)
+    logger.info("Instagram @%s (%s) connected to %s", me.get("username"), account_id, slug)
+    return _page("You're connected",
+                 f"<p>{escape(business.assistant_name)} is now set up for @{escape(me.get('username', ''))}. "
+                 f"You can close this page.</p>")
+
+
+def _disconnect_from_signed_request(signed_request: str) -> Optional[str]:
+    payload = instagram_connect.parse_signed_request(signed_request)
+    if payload is None:
+        raise HTTPException(status_code=403, detail="Invalid signed_request")
+    account_id = store.account_for_user(str(payload.get("user_id", "")))
+    if account_id:
+        store.disconnect_account(account_id)
+        _connected_tokens.pop(account_id, None)
+        logger.info("Instagram account %s disconnected by its owner", account_id)
+    return account_id
+
+
+@app.post("/auth/instagram/deauthorize")
+async def instagram_deauthorize(signed_request: str = Form("")):
+    """Meta calls this when an owner removes the app from their Instagram."""
+    _disconnect_from_signed_request(signed_request)
+    return {"status": "ok"}
+
+
+@app.post("/auth/instagram/delete")
+async def instagram_data_deletion(signed_request: str = Form("")):
+    """Meta calls this when an owner asks for their data to be deleted."""
+    payload = instagram_connect.parse_signed_request(signed_request)
+    if payload is None:
+        raise HTTPException(status_code=403, detail="Invalid signed_request")
+    account_id = store.account_for_user(str(payload.get("user_id", "")))
+    if account_id:
+        found = store.account_business(account_id)
+        _disconnect_from_signed_request(signed_request)
+        if found:
+            store.delete_business_history(found[0])
+    code = secrets.token_hex(8)
+    return {"url": f"{instagram_connect.base_url()}/auth/instagram/deletion?code={code}",
+            "confirmation_code": code}
+
+
+@app.get("/auth/instagram/deletion")
+async def instagram_deletion_status(code: str = ""):
+    return _page("Data deleted",
+                 f"<p>Request {escape(code)}: the Instagram token and stored conversation summaries "
+                 f"for this account have been deleted.</p>")
 
 
 static_dir = os.path.join(os.path.dirname(__file__), "..", "static")
