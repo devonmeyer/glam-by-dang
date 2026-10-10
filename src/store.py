@@ -48,6 +48,12 @@ CREATE TABLE IF NOT EXISTS invites (
     used_at REAL,
     account_id TEXT
 );
+-- Business settings created or edited in the admin panel ({file name: text} as JSON).
+CREATE TABLE IF NOT EXISTS business_settings (
+    slug TEXT PRIMARY KEY,
+    files TEXT NOT NULL,
+    updated_at REAL NOT NULL
+);
 -- One row per customer per day's summary; replaced as the conversation goes on.
 CREATE TABLE IF NOT EXISTS conversations (
     business_id INTEGER NOT NULL REFERENCES businesses(id),
@@ -153,6 +159,34 @@ class Store:
             (business_id,),
         )
         return [r[0] for r in rows]
+
+    def account_details(self, business_id: int) -> list[tuple[str, str, Optional[float]]]:
+        """(account id, username, token expiry) for each account linked to a business."""
+        rows = self._execute(
+            "SELECT a.account_id, COALESCE(t.username, ''), t.expires_at FROM instagram_accounts a "
+            "LEFT JOIN instagram_tokens t ON t.account_id = a.account_id "
+            "WHERE a.business_id = ? ORDER BY a.created_at",
+            (business_id,),
+        )
+        return [(r[0], r[1], r[2]) for r in rows]
+
+    # Business settings from the admin panel
+
+    def saved_business(self, slug: str) -> Optional[dict[str, str]]:
+        rows = self._execute("SELECT files FROM business_settings WHERE slug = ?", (slug,))
+        return json.loads(rows[0][0]) if rows else None
+
+    def saved_business_slugs(self) -> list[str]:
+        return [r[0] for r in self._execute("SELECT slug FROM business_settings ORDER BY slug")]
+
+    def save_business(self, slug: str, files: dict[str, str]) -> None:
+        self._execute(
+            "INSERT OR REPLACE INTO business_settings (slug, files, updated_at) VALUES (?, ?, ?)",
+            (slug, json.dumps(files), self.clock()),
+        )
+
+    def discard_saved_business(self, slug: str) -> None:
+        self._execute("DELETE FROM business_settings WHERE slug = ?", (slug,))
 
     # Tokens for connected accounts
 

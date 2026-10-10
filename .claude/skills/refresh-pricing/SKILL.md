@@ -7,6 +7,8 @@ description: Use this skill when asked to check, refresh, sync, or audit Mia's p
 
 `businesses/glam-by-dang/context.md` (prices and facts), the cancellation-tier rule in `businesses/glam-by-dang/rules.md`, and `cancellation_tiers` in `businesses/glam-by-dang/business.json` are a manually maintained snapshot of Kha's real pricing and policies. They drift from reality whenever Kha updates Fresha or her policy post without telling anyone. This skill re-checks the live sources and reports drift — it does not silently apply changes.
 
+If Kha's business has been edited in the admin panel (https://itsmia.info/admin shows "Edited in panel"), the live settings are the panel's copy and the repo folder is ignored. In that case, report drift against what the panel shows and make approved changes in the panel, not in the repo.
+
 ## Live sources to check
 
 - **Fresha booking page (source of truth for prices):**

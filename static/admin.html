@@ -1,0 +1,485 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Mia Admin</title>
+<style>
+  :root {
+    --bg: #f7f5f8; --panel: #fff; --text: #1f1a22; --muted: #6f6675; --line: #e6e0e9;
+    --accent: #6b3f7d; --accent-soft: #f1e9f4; --ok: #1d7a46; --warn: #a3620a; --bad: #b42318;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { background: var(--panel); border-bottom: 1px solid var(--line); padding: 12px 16px; display: flex; align-items: center; gap: 16px; position: sticky; top: 0; z-index: 5; }
+  header h1 { font-size: 17px; margin: 0; }
+  nav { display: flex; gap: 4px; flex: 1; }
+  nav button, .tabs button { white-space: nowrap; background: none; border: 0; padding: 6px 10px; border-radius: 6px; color: var(--muted); font: inherit; cursor: pointer; }
+  nav button.on, .tabs button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  main { max-width: 980px; margin: 0 auto; padding: 20px 16px 60px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 14px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .grow { flex: 1; }
+  .muted { color: var(--muted); }
+  .small { font-size: 13px; }
+  h2 { font-size: 20px; margin: 0 0 4px; }
+  h3 { font-size: 15px; margin: 0 0 10px; }
+  button.btn { background: var(--accent); color: #fff; border: 0; border-radius: 7px; padding: 8px 14px; font: inherit; font-weight: 600; cursor: pointer; }
+  button.btn.secondary { background: var(--accent-soft); color: var(--accent); }
+  button.btn.danger { background: #fde8e7; color: var(--bad); }
+  button.btn:disabled { opacity: .5; cursor: default; }
+  input, select, textarea { font: inherit; border: 1px solid var(--line); border-radius: 7px; padding: 7px 9px; background: #fff; color: var(--text); width: 100%; }
+  textarea { font-family: var(--mono); font-size: 13px; min-height: 340px; resize: vertical; }
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+  .pill { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 99px; background: var(--accent-soft); color: var(--accent); }
+  .pill.ok { background: #e3f4ea; color: var(--ok); }
+  .pill.warn { background: #fdf1de; color: var(--warn); }
+  .pill.bad { background: #fde8e7; color: var(--bad); }
+  .biz { cursor: pointer; transition: border-color .15s; }
+  .biz:hover { border-color: var(--accent); }
+  pre { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 12px; white-space: pre-wrap; font-family: var(--mono); font-size: 13px; margin: 10px 0 0; }
+  .tabs { display: flex; gap: 4px; margin: 14px 0; border-bottom: 1px solid var(--line); padding-bottom: 8px; overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  td, th { padding: 5px 6px; border-bottom: 1px solid var(--line); text-align: left; font-size: 14px; vertical-align: middle; }
+  .logs { font-family: var(--mono); font-size: 12.5px; background: #17131a; color: #e8e2ea; border-radius: 10px; padding: 10px 12px; height: 65vh; overflow: auto; }
+  .logs div { white-space: pre-wrap; word-break: break-word; padding: 1px 0; }
+  .logs .WARNING { color: #f6c26b; } .logs .ERROR, .logs .CRITICAL { color: #ff8a80; }
+  .logs time { color: #8d8394; margin-right: 8px; }
+  #toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: #1f1a22; color: #fff; padding: 10px 16px; border-radius: 8px; display: none; max-width: 90vw; z-index: 20; }
+  #toast.bad { background: var(--bad); }
+  .modal { position: fixed; inset: 0; background: rgba(20,10,25,.4); display: none; align-items: center; justify-content: center; padding: 16px; z-index: 10; }
+  .modal .card { width: 100%; max-width: 440px; }
+  .link-box { display: flex; gap: 8px; margin-top: 10px; }
+  .link-box input { font-family: var(--mono); font-size: 13px; }
+  .hidden { display: none !important; }
+  @media (max-width: 600px) { header { flex-wrap: wrap; } }
+</style>
+</head>
+<body>
+
+<div id="login" class="hidden">
+  <main style="max-width:380px;padding-top:12vh">
+    <div class="card">
+      <h2>Mia Admin</h2>
+      <p class="muted small">Log in with the ADMIN_SECRET set in Railway.</p>
+      <form id="login-form">
+        <input id="secret" type="password" autocomplete="current-password" placeholder="Admin secret" required>
+        <div class="row" style="margin-top:12px"><button class="btn grow">Log in</button></div>
+      </form>
+    </div>
+  </main>
+</div>
+
+<div id="app" class="hidden">
+  <header>
+    <h1>Mia Admin</h1>
+    <nav>
+      <button data-view="businesses" class="on">Businesses</button>
+      <button data-view="logs">Logs</button>
+    </nav>
+    <button class="btn secondary" id="logout">Log out</button>
+  </header>
+
+  <main>
+    <!-- Business list -->
+    <section id="view-businesses">
+      <div class="row" style="margin-bottom:14px">
+        <h2 class="grow">Businesses</h2>
+        <button class="btn" id="new-biz">New business</button>
+      </div>
+      <div id="email-warning" class="card hidden small" style="border-color:#f3d39b">
+        Email isn't configured on the server (RESEND_API_KEY / SUMMARY_FROM_EMAIL), so summaries and emailed links won't send.
+      </div>
+      <div id="biz-list"></div>
+    </section>
+
+    <!-- One business -->
+    <section id="view-business" class="hidden">
+      <button class="btn secondary small" id="back">← All businesses</button>
+      <div class="row" style="margin-top:14px">
+        <div class="grow"><h2 id="b-name"></h2><div class="muted small" id="b-sub"></div></div>
+        <span id="b-source"></span>
+      </div>
+      <div class="tabs">
+        <button data-tab="overview" class="on">Overview</button>
+        <button data-tab="settings">Settings</button>
+        <button data-tab="about">About &amp; tone</button>
+        <button data-tab="rules">Reply rules</button>
+        <button data-tab="context">Facts &amp; prices</button>
+      </div>
+
+      <div id="tab-overview">
+        <div class="card">
+          <h3>Instagram</h3>
+          <div id="b-accounts"></div>
+        </div>
+        <div class="card">
+          <h3>Connect link</h3>
+          <p class="muted small" style="margin-top:0">A one-time link the owner opens to connect their Instagram. It expires in 7 days. Until Meta app review passes, add their Instagram as a tester in the Meta dashboard first.</p>
+          <div class="row">
+            <input id="invite-email" type="email" placeholder="Owner's email (optional, to email the link)" class="grow" style="width:auto">
+            <button class="btn" id="make-invite">Create link</button>
+          </div>
+          <div id="invite-result" class="hidden">
+            <div class="link-box"><input id="invite-url" readonly><button class="btn secondary" id="copy-invite">Copy</button></div>
+            <div class="muted small" id="invite-note" style="margin-top:6px"></div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Daily summary</h3>
+          <div class="muted small" id="b-summary-info"></div>
+          <div class="row" style="margin-top:10px">
+            <button class="btn secondary" id="preview-summary">Preview</button>
+            <button class="btn" id="send-summary">Send now</button>
+          </div>
+          <pre id="summary-preview" class="hidden"></pre>
+        </div>
+        <div class="card hidden" id="revert-card">
+          <h3>Edited in the panel</h3>
+          <p class="muted small" style="margin-top:0">This business's settings are saved in the database, so changes to its folder in the repo are ignored. Discarding the panel edits makes it follow the repo folder again.</p>
+          <button class="btn danger" id="revert">Discard panel edits</button>
+        </div>
+      </div>
+
+      <div id="tab-settings" class="hidden">
+        <div class="card">
+          <div class="grid">
+            <div><label>Business name</label><input data-k="name"></div>
+            <div><label>Owner's first name</label><input data-k="owner_name"></div>
+            <div><label>Assistant name</label><input data-k="assistant_name"></div>
+            <div><label>City</label><input data-k="city"></div>
+            <div><label>Time zone</label><input data-k="timezone" placeholder="America/New_York"></div>
+            <div><label>Summary email</label><input data-k="summary_email" type="email"></div>
+            <div><label>Summary time (local hour, 0–23)</label><input data-k="summary_hour" type="number" min="0" max="23"></div>
+            <div><label>Booking link</label><input data-k="booking_link"></div>
+            <div><label>Review link</label><input data-k="review_link"></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="grid" style="grid-template-columns:1fr">
+            <div><label>Greeting (starts the first reply to a new client)</label><input data-k="greeting"></div>
+            <div><label>Hand-off reply (when Mia passes a client to the owner)</label><input data-k="escalation_reply"></div>
+            <div><label>Out-of-hours note</label><input data-k="out_of_hours_note"></div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Opening hours</h3>
+          <table id="hours"></table>
+        </div>
+        <div class="card">
+          <h3>Cancellation policy</h3>
+          <p class="muted small" style="margin-top:0">Mia picks the first tier whose minimum notice the client meets.</p>
+          <table id="tiers"></table>
+          <button class="btn secondary small" id="add-tier" style="margin-top:8px">Add tier</button>
+        </div>
+      </div>
+
+      <div id="tab-about" class="hidden"><div class="card">
+        <p class="muted small" style="margin-top:0">Who Mia works for and how she sounds. You can use {{owner}}, {{assistant}}, {{business}}, {{booking_link}} and {{review_link}}.</p>
+        <textarea data-file="about.md"></textarea></div></div>
+      <div id="tab-rules" class="hidden"><div class="card">
+        <p class="muted small" style="margin-top:0">How Mia replies, what she hands off, and when she shares links.</p>
+        <textarea data-file="rules.md"></textarea></div></div>
+      <div id="tab-context" class="hidden"><div class="card">
+        <p class="muted small" style="margin-top:0">Everything Mia answers from: services, prices, policies, location, FAQs.</p>
+        <textarea data-file="context.md" style="min-height:520px"></textarea></div></div>
+
+      <div class="row hidden" id="save-bar" style="position:sticky;bottom:12px">
+        <div class="card row grow" style="margin:0;box-shadow:0 4px 18px rgba(0,0,0,.08)">
+          <span class="grow muted small">Changes apply to Mia's replies as soon as you save.</span>
+          <button class="btn" id="save">Save changes</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Logs -->
+    <section id="view-logs" class="hidden">
+      <div class="row" style="margin-bottom:12px">
+        <h2 class="grow">Logs</h2>
+        <input id="log-q" placeholder="Search" style="width:200px">
+        <select id="log-level" style="width:auto">
+          <option value="">All</option><option value="WARNING">Warnings + errors</option><option value="ERROR">Errors</option>
+        </select>
+        <label class="row small" style="margin:0;gap:4px"><input type="checkbox" id="log-live" checked style="width:auto"> Live</label>
+      </div>
+      <div class="logs" id="logs"></div>
+      <p class="muted small">Shows recent activity since the last deploy. Railway keeps the full history.</p>
+    </section>
+  </main>
+</div>
+
+<div class="modal" id="new-modal">
+  <div class="card">
+    <h3>New business</h3>
+    <form id="new-form">
+      <label>Business name</label><input id="n-name" required placeholder="Lash Lab">
+      <label style="margin-top:10px">Short id (lowercase, dashes)</label><input id="n-slug" required placeholder="lash-lab" pattern="[a-z0-9]+(-[a-z0-9]+)*">
+      <label style="margin-top:10px">Owner's first name</label><input id="n-owner" required>
+      <label style="margin-top:10px">Start from</label>
+      <select id="n-copy"><option value="">Blank starter</option></select>
+      <div class="row" style="margin-top:14px;justify-content:flex-end">
+        <button type="button" class="btn secondary" id="n-cancel">Cancel</button>
+        <button class="btn">Create</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+let current = null;      // the open business (overview + files)
+let cfg = null;          // its parsed business.json
+let dirty = false;
+let businesses = [];
+
+function toast(msg, bad = false) {
+  const t = $("#toast");
+  t.textContent = msg; t.className = bad ? "bad" : ""; t.style.display = "block";
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => t.style.display = "none", bad ? 6000 : 3000);
+}
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    ...opts,
+    headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  if (res.status === 403 && path !== "/admin/api/login") { showLogin(); throw new Error("Please log in again"); }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || `Request failed (${res.status})`);
+  return data;
+}
+
+function esc(s) { const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML; }
+
+function showLogin() { $("#app").classList.add("hidden"); $("#login").classList.remove("hidden"); $("#secret").focus(); }
+function showApp() { $("#login").classList.add("hidden"); $("#app").classList.remove("hidden"); }
+
+$("#login-form").onsubmit = async (e) => {
+  e.preventDefault();
+  try { await api("/admin/api/login", { method: "POST", body: { secret: $("#secret").value } }); $("#secret").value = ""; showApp(); route(); }
+  catch (err) { toast(err.message, true); }
+};
+$("#logout").onclick = async () => { await api("/admin/api/logout", { method: "POST" }); showLogin(); };
+
+// --- Navigation ---
+function show(view) {
+  for (const v of ["businesses", "business", "logs"]) $(`#view-${v}`).classList.toggle("hidden", v !== view);
+  $$("nav button").forEach(b => b.classList.toggle("on", b.dataset.view === (view === "business" ? "businesses" : view)));
+  if (view === "logs") startLogs(); else stopLogs();
+}
+$$("nav button").forEach(b => b.onclick = () => go(b.dataset.view === "logs" ? "#logs" : "#"));
+function go(hash) {
+  if (dirty && !confirm("Discard unsaved changes?")) return;
+  dirty = false;
+  if (location.hash === hash || (hash === "#" && !location.hash)) route(); else location.hash = hash;
+}
+window.onhashchange = () => route();
+function route() {
+  const h = location.hash;
+  if (h === "#logs") show("logs");
+  else if (h.startsWith("#b/")) openBusiness(decodeURIComponent(h.slice(3)));
+  else { show("businesses"); loadBusinesses(); }
+}
+$("#back").onclick = () => go("#");
+
+// --- Business list ---
+function accountPill(b) {
+  if (b.error) return `<span class="pill bad">Settings error</span>`;
+  if (!b.accounts?.length) return `<span class="pill warn">Instagram not connected</span>`;
+  return b.accounts.map(a => `<span class="pill ok">@${esc(a.username || a.account_id)}</span>`).join(" ");
+}
+async function loadBusinesses() {
+  try {
+    const data = await api("/admin/api/businesses");
+    businesses = data.businesses;
+    $("#email-warning").classList.toggle("hidden", data.email_configured);
+    $("#biz-list").innerHTML = businesses.map(b => `
+      <div class="card biz" data-slug="${esc(b.slug)}">
+        <div class="row">
+          <div class="grow"><strong>${esc(b.name)}</strong> <span class="muted small">${esc(b.slug)}</span>
+            <div class="muted small">${b.error ? esc(b.error) : `${esc(b.owner_name)} · summary ${b.summary_email ? "to " + esc(b.summary_email) : "<em>no email set</em>"} · ${b.pending_conversations} conversation${b.pending_conversations === 1 ? "" : "s"} since the last summary`}</div>
+          </div>
+          <div>${accountPill(b)}</div>
+        </div>
+      </div>`).join("") || `<p class="muted">No businesses yet.</p>`;
+    $$(".biz").forEach(el => el.onclick = () => go("#b/" + encodeURIComponent(el.dataset.slug)));
+  } catch (err) { toast(err.message, true); }
+}
+
+// --- New business ---
+$("#new-biz").onclick = () => {
+  $("#n-copy").innerHTML = `<option value="">Blank starter</option>` +
+    businesses.filter(b => !b.error).map(b => `<option value="${esc(b.slug)}">Copy of ${esc(b.name)}</option>`).join("");
+  $("#new-modal").style.display = "flex"; $("#n-name").focus();
+};
+$("#n-cancel").onclick = () => $("#new-modal").style.display = "none";
+$("#n-name").oninput = () => {
+  if (!$("#n-slug").dataset.touched) $("#n-slug").value = $("#n-name").value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+};
+$("#n-slug").oninput = () => $("#n-slug").dataset.touched = "1";
+$("#new-form").onsubmit = async (e) => {
+  e.preventDefault();
+  try {
+    const b = await api("/admin/api/businesses", { method: "POST", body: {
+      name: $("#n-name").value, slug: $("#n-slug").value, owner_name: $("#n-owner").value, copy_from: $("#n-copy").value } });
+    $("#new-modal").style.display = "none"; $("#new-form").reset(); delete $("#n-slug").dataset.touched;
+    toast(`${b.name} created. Fill in its settings next.`);
+    go("#b/" + encodeURIComponent(b.slug));
+  } catch (err) { toast(err.message, true); }
+};
+
+// --- One business ---
+$$(".tabs button").forEach(b => b.onclick = () => selectTab(b.dataset.tab));
+function selectTab(tab) {
+  $$(".tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === tab));
+  for (const t of ["overview", "settings", "about", "rules", "context"]) $(`#tab-${t}`).classList.toggle("hidden", t !== tab);
+  $("#save-bar").classList.toggle("hidden", tab === "overview");
+}
+
+async function openBusiness(slug) {
+  show("business");
+  try { current = await api(`/admin/api/businesses/${encodeURIComponent(slug)}`); }
+  catch (err) { toast(err.message, true); return; }
+  dirty = false;
+  $("#b-name").textContent = current.name;
+  $("#b-sub").textContent = current.error ? current.error : `${current.slug} · ${current.owner_name} · ${current.timezone}`;
+  $("#b-source").innerHTML = current.source === "repo" ? `<span class="pill">From repo folder</span>`
+    : current.has_repo_folder ? `<span class="pill">Edited in panel</span>` : `<span class="pill">Created in panel</span>`;
+  $("#revert-card").classList.toggle("hidden", !(current.source === "panel" && current.has_repo_folder));
+  $("#b-accounts").innerHTML = current.accounts?.length
+    ? current.accounts.map(a => `<div class="row"><span class="pill ok">@${esc(a.username || "unknown")}</span>
+        <span class="muted small">account ${esc(a.account_id)}${a.token_expires_at ? " · login renews automatically, current one valid until " + new Date(a.token_expires_at * 1000).toLocaleDateString() : ""}</span></div>`).join("")
+    : `<span class="muted">Not connected yet. Create a connect link below and send it to the owner.</span>`;
+  $("#b-summary-info").innerHTML = current.summary_email
+    ? `Goes to <strong>${esc(current.summary_email)}</strong> daily at ${current.summary_hour}:00 (${esc(current.timezone)}). ${current.pending_conversations} conversation${current.pending_conversations === 1 ? "" : "s"} waiting.`
+    : `No summary email set. Add one under Settings.`;
+  $("#invite-result").classList.add("hidden");
+  $("#summary-preview").classList.add("hidden");
+  $("#invite-email").value = "";
+
+  cfg = JSON.parse(current.files["business.json"]);
+  $$("[data-k]").forEach(el => el.value = cfg[el.dataset.k] ?? "");
+  renderHours(); renderTiers();
+  $$("[data-file]").forEach(el => el.value = current.files[el.dataset.file] ?? "");
+  selectTab("overview");
+}
+
+function renderHours() {
+  $("#hours").innerHTML = `<tr><th>Day</th><th>Open</th><th>From</th><th>To</th></tr>` + DAYS.map(d => {
+    const h = cfg.hours?.[d];
+    return `<tr data-day="${d}"><td>${d}</td><td><input type="checkbox" ${h ? "checked" : ""} style="width:auto"></td>
+      <td><input type="time" value="${h ? h[0] : "10:00"}"></td><td><input type="time" value="${h ? h[1] : "18:00"}"></td></tr>`;
+  }).join("");
+}
+function renderTiers() {
+  const tiers = cfg.cancellation_tiers || [];
+  $("#tiers").innerHTML = `<tr><th style="width:150px">Notice (hours) at least</th><th>What happens</th><th></th></tr>` +
+    tiers.map((t, i) => `<tr data-i="${i}"><td><input type="number" min="0" step="any" value="${t.min_hours}"></td>
+      <td><input value="${esc(t.status)}"></td><td><button class="btn danger small" data-remove="${i}">✕</button></td></tr>`).join("");
+  $$("[data-remove]").forEach(b => b.onclick = () => { collectTiers(); cfg.cancellation_tiers.splice(+b.dataset.remove, 1); renderTiers(); dirty = true; });
+}
+$("#add-tier").onclick = () => { collectTiers(); cfg.cancellation_tiers.push({ min_hours: 0, status: "" }); renderTiers(); dirty = true; };
+function collectTiers() {
+  cfg.cancellation_tiers = $$("#tiers tr[data-i]").map(tr => {
+    const [h, s] = $$("input", tr);
+    return { min_hours: Number(h.value || 0), status: s.value };
+  });
+}
+function collect() {
+  $$("[data-k]").forEach(el => cfg[el.dataset.k] = el.type === "number" ? Number(el.value) : el.value.trim());
+  cfg.hours = {};
+  $$("#hours tr[data-day]").forEach(tr => {
+    const [on, from, to] = $$("input", tr);
+    if (on.checked) cfg.hours[tr.dataset.day] = [from.value, to.value];
+  });
+  collectTiers();
+  const files = { "business.json": JSON.stringify(cfg, null, 2) + "\n" };
+  $$("[data-file]").forEach(el => files[el.dataset.file] = el.value);
+  return files;
+}
+document.addEventListener("input", e => { if (e.target.closest("#tab-settings, #tab-about, #tab-rules, #tab-context")) dirty = true; });
+window.addEventListener("beforeunload", e => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
+
+$("#save").onclick = async () => {
+  const btn = $("#save"); btn.disabled = true;
+  try {
+    await api(`/admin/api/businesses/${encodeURIComponent(current.slug)}`, { method: "PUT", body: { files: collect() } });
+    dirty = false; toast("Saved. Mia uses the new settings from her next reply.");
+    const tab = $(".tabs button.on").dataset.tab;
+    await openBusiness(current.slug); selectTab(tab);
+  } catch (err) { toast(err.message, true); }
+  btn.disabled = false;
+};
+
+$("#revert").onclick = async () => {
+  if (!confirm("Discard everything edited in the panel for this business and go back to its repo folder?")) return;
+  try { await api(`/admin/api/businesses/${encodeURIComponent(current.slug)}/saved`, { method: "DELETE" }); toast("Reverted to the repo folder."); openBusiness(current.slug); }
+  catch (err) { toast(err.message, true); }
+};
+
+$("#make-invite").onclick = async () => {
+  const btn = $("#make-invite"); btn.disabled = true;
+  try {
+    const email = $("#invite-email").value.trim();
+    const r = await api(`/admin/api/businesses/${encodeURIComponent(current.slug)}/invite`, { method: "POST", body: { email } });
+    $("#invite-url").value = r.url;
+    $("#invite-note").textContent = `Expires ${new Date(r.expires_at).toLocaleString()}.` +
+      (email ? (r.emailed ? ` Emailed to ${email}.` : ` Couldn't email it to ${email}; copy it instead.`) : "");
+    $("#invite-result").classList.remove("hidden");
+  } catch (err) { toast(err.message, true); }
+  btn.disabled = false;
+};
+$("#copy-invite").onclick = async () => {
+  try { await navigator.clipboard.writeText($("#invite-url").value); toast("Link copied"); }
+  catch { $("#invite-url").select(); }
+};
+
+$("#preview-summary").onclick = async () => {
+  try {
+    const r = await api(`/admin/api/businesses/${encodeURIComponent(current.slug)}/summary`);
+    $("#summary-preview").textContent = r.text; $("#summary-preview").classList.remove("hidden");
+  } catch (err) { toast(err.message, true); }
+};
+$("#send-summary").onclick = async () => {
+  if (!confirm("Send the summary now? The conversations it covers won't appear in the next scheduled one.")) return;
+  const btn = $("#send-summary"); btn.disabled = true;
+  try {
+    const r = await api(`/admin/api/businesses/${encodeURIComponent(current.slug)}/summary`, { method: "POST" });
+    toast(r.to ? `Summary sent to ${r.to}` : "Summary sent. Check the logs to see where it went.");
+    openBusiness(current.slug);
+  } catch (err) { toast(err.message, true); }
+  btn.disabled = false;
+};
+
+// --- Logs ---
+let logTimer = null;
+async function loadLogs() {
+  try {
+    const q = new URLSearchParams({ q: $("#log-q").value, level: $("#log-level").value, limit: 1000 });
+    const r = await api(`/admin/api/logs?${q}`);
+    const box = $("#logs");
+    const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+    box.innerHTML = r.lines.map(l => `<div class="${l.level}"><time>${new Date(l.time * 1000).toLocaleString()}</time>${esc(l.level)} ${esc(l.message)}</div>`).join("")
+      || `<div class="muted">Nothing logged yet.</div>`;
+    if (atBottom) box.scrollTop = box.scrollHeight;
+  } catch (err) { stopLogs(); toast(err.message, true); }
+}
+function startLogs() { loadLogs(); stopLogs(); if ($("#log-live").checked) logTimer = setInterval(loadLogs, 4000); }
+function stopLogs() { clearInterval(logTimer); logTimer = null; }
+$("#log-q").oninput = () => loadLogs();
+$("#log-level").onchange = () => loadLogs();
+$("#log-live").onchange = () => startLogs();
+
+// --- Start ---
+api("/admin/api/session").then(r => { if (r.admin) { showApp(); route(); } else showLogin(); }).catch(showLogin);
+</script>
+</body>
+</html>

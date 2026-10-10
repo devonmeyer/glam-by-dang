@@ -11,7 +11,9 @@ Each folder here is one business Mia answers DMs for. The folder name is the bus
 
 `src/prompt_template.md` holds what every business shares (categories, the JSON output format, action rules) and slots these files in. In any of them, `{{owner}}`, `{{assistant}}`, `{{business}}`, `{{booking_link}}` and `{{review_link}}` are filled from `business.json`.
 
-To add a business, copy `glam-by-dang/`, rewrite every file for the new business, then run `python3 tests/test_business.py`.
+The admin panel at https://itsmia.info/admin (log in with `ADMIN_SECRET`) can also create businesses and edit these same four files. What it saves is stored in the database and takes precedence over a folder here with the same name, so once a business is edited in the panel, changes to its folder are ignored until you choose "Discard panel edits" there.
+
+To add a business by hand instead, copy `glam-by-dang/`, rewrite every file for the new business, then run `python3 tests/test_business.py`.
 
 ## Connecting a business's Instagram
 

@@ -1,0 +1,25 @@
+{
+  "name": "New Business",
+  "owner_name": "Owner",
+  "assistant_name": "Mia",
+  "timezone": "America/New_York",
+  "city": "New York City",
+  "hours": {
+    "Tuesday": ["10:00", "18:00"],
+    "Wednesday": ["10:00", "18:00"],
+    "Thursday": ["10:00", "18:00"],
+    "Friday": ["10:00", "18:00"],
+    "Saturday": ["10:00", "16:00"]
+  },
+  "booking_link": "https://example.com/book",
+  "review_link": "https://example.com/review",
+  "greeting": "Hi, I'm Mia, Owner's assistant! ",
+  "escalation_reply": "I'll make sure Owner sees this and gets back to you! 🤍",
+  "out_of_hours_note": "Owner's hours are Tue–Fri 10am–6pm, Sat 10am–4pm. They'll follow up personally when they're back.",
+  "summary_email": "",
+  "summary_hour": 10,
+  "cancellation_tiers": [
+    {"min_hours": 48, "status": "deposit can move to a future booking (48+ hours away)"},
+    {"min_hours": 0, "status": "deposit is forfeited (less than 48 hours away, or a no-show)"}
+  ]
+}
