@@ -21,8 +21,10 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 from pathlib import Path
 import httpx
+import anthropic
 
 import instagram_connect
+from admin_assistant import Assistant
 from connected_tokens import ConnectedTokenStore, crypto_configured
 from instagram_connect import ConnectError
 from instagram_token import TokenStore
@@ -1061,6 +1063,22 @@ async def admin_session(request: Request):
     return {"admin": _is_admin(request)}
 
 
+def _save_business_files(slug: str, files: dict[str, str], note: str) -> Business:
+    """Validate and save a business's files from the panel, keeping a version for undo.
+    Raises ValueError with a readable reason if the files don't make a working business."""
+    files = {name: files.get(name, "") for name in business_config.FILE_NAMES}
+    business = build_business(slug, files)
+    if not store.business_versions(slug, limit=1) and slug in business_slugs():
+        # First panel save: keep what it replaces so it can be restored.
+        store.add_business_version(slug, business_files(slug), "Starting point")
+    store.save_business(slug, files)
+    store.add_business_version(slug, files, note)
+    load_business.cache_clear()
+    store.ensure_business(slug, business.name)
+    logger.info("Business %s saved: %s", slug, note)
+    return business
+
+
 def _business_overview(slug: str) -> dict:
     try:
         business = load_business(slug)
@@ -1111,13 +1129,9 @@ async def admin_create_business(req: NewBusiness, request: Request):
     cfg["summary_email"] = ""
     files["business.json"] = json.dumps(cfg, indent=2, ensure_ascii=False) + "\n"
     try:
-        build_business(slug, files)
+        _save_business_files(slug, files, "Created in the admin panel")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    store.save_business(slug, files)
-    load_business.cache_clear()
-    store.ensure_business(slug, cfg["name"])
-    logger.info("Business %s created in the admin panel", slug)
     return _business_overview(slug)
 
 
@@ -1134,15 +1148,10 @@ async def admin_save_business(slug: str, req: BusinessFiles, request: Request):
     _require_admin(request)
     if slug not in business_slugs():
         raise HTTPException(status_code=404, detail=f"No business {slug!r}")
-    files = {name: req.files.get(name, "") for name in business_config.FILE_NAMES}
     try:
-        business = build_business(slug, files)
+        _save_business_files(slug, req.files, "Edited in the admin panel")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    store.save_business(slug, files)
-    load_business.cache_clear()
-    store.ensure_business(slug, business.name)
-    logger.info("Business %s updated in the admin panel", slug)
     return _business_overview(slug)
 
 
@@ -1154,7 +1163,29 @@ async def admin_discard_saved(slug: str, request: Request):
         raise HTTPException(status_code=400, detail="This business only exists in the panel; there's no repo folder to go back to")
     store.discard_saved_business(slug)
     load_business.cache_clear()
+    store.add_business_version(slug, business_files(slug), "Back to the repo folder")
     logger.info("Business %s reverted to its repo folder", slug)
+    return _business_overview(slug)
+
+
+@app.get("/admin/api/businesses/{slug}/versions")
+async def admin_versions(slug: str, request: Request):
+    _require_admin(request)
+    return {"versions": [{"id": i, "note": n, "saved_at": t} for i, n, t in store.business_versions(slug)]}
+
+
+@app.post("/admin/api/businesses/{slug}/versions/{version_id}/restore")
+async def admin_restore_version(slug: str, version_id: int, request: Request):
+    _require_admin(request)
+    found = store.business_version(version_id)
+    if not found or found[0] != slug:
+        raise HTTPException(status_code=404, detail="No such version")
+    saved_at = next((t for i, _, t in store.business_versions(slug, limit=10_000) if i == version_id), None)
+    when = datetime.fromtimestamp(saved_at, tz=ET).strftime("%b %-d, %-I:%M %p") if saved_at else f"#{version_id}"
+    try:
+        _save_business_files(slug, found[1], f"Restored the version from {when}")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return _business_overview(slug)
 
 
@@ -1190,6 +1221,109 @@ async def admin_invite(slug: str, req: InviteEmail, request: Request):
                 f"The link works once and expires in 7 days.\n")
         invite["emailed"] = await send_email(email, f"Connect your Instagram to {business.assistant_name}", text)
     return invite
+
+
+# --- Admin assistant: a chat that proposes business edits for the admin to apply ---
+
+assistant = Assistant(
+    list_slugs=lambda: business_slugs(),
+    business_name=lambda slug: _safe_business_name(slug),
+    read_files=lambda slug: business_files(slug),
+    validate=lambda slug, files: build_business(slug, files) and None,
+)
+_assistant_busy: set[str] = set()
+IMAGE_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+
+
+def _safe_business_name(slug: str) -> str:
+    try:
+        return load_business(slug).name
+    except ValueError:
+        return slug
+
+
+class AssistantImage(BaseModel):
+    media_type: str
+    data: str
+
+
+class AssistantMessage(BaseModel):
+    message: str
+    chat_id: str = ""
+    viewing: str = ""
+    images: list[AssistantImage] = []
+
+
+@app.post("/admin/api/assistant")
+async def admin_assistant(req: AssistantMessage, request: Request):
+    _require_admin(request)
+    if not req.message.strip():
+        raise HTTPException(status_code=400, detail="Type a message")
+    if len(req.images) > 4:
+        raise HTTPException(status_code=400, detail="Attach at most 4 images")
+    for img in req.images:
+        if img.media_type not in IMAGE_TYPES:
+            raise HTTPException(status_code=400, detail="Images must be PNG, JPEG, GIF or WebP")
+        if len(img.data) > 7_000_000:
+            raise HTTPException(status_code=400, detail="Each image must be under 5 MB")
+    chat = assistant.chat(req.chat_id) if req.chat_id else None
+    if chat is None:
+        chat = assistant.new_chat(secrets.token_urlsafe(12))
+    if chat.id in _assistant_busy:
+        raise HTTPException(status_code=409, detail="Still working on your last message")
+    _assistant_busy.add(chat.id)
+    try:
+        result = await assistant.send(chat, req.message.strip(), [i.model_dump() for i in req.images],
+                                      req.viewing if req.viewing in business_slugs() else "")
+    except anthropic.APIError as e:
+        logger.error("Admin assistant call failed: %s", e)
+        raise HTTPException(status_code=502, detail=f"The assistant couldn't reach Claude: {e}")
+    finally:
+        _assistant_busy.discard(chat.id)
+    return {"chat_id": chat.id, **result}
+
+
+@app.get("/admin/api/assistant/{chat_id}")
+async def admin_assistant_chat(chat_id: str, request: Request):
+    _require_admin(request)
+    chat = assistant.chat(chat_id)
+    if chat is None:
+        raise HTTPException(status_code=404, detail="That chat has ended")
+    return {"chat_id": chat.id, "transcript": chat.transcript,
+            "proposals": [assistant.proposals[p].to_dict() for p in chat.proposal_ids]}
+
+
+def _proposal(proposal_id: int):
+    proposal = assistant.proposals.get(proposal_id)
+    if proposal is None:
+        raise HTTPException(status_code=404, detail="That proposal has expired")
+    if proposal.status != "pending":
+        raise HTTPException(status_code=409, detail=f"That proposal was already {proposal.status}")
+    return proposal
+
+
+@app.post("/admin/api/assistant/proposals/{proposal_id}/apply")
+async def admin_apply_proposal(proposal_id: int, request: Request):
+    _require_admin(request)
+    proposal = _proposal(proposal_id)
+    files = business_files(proposal.slug)
+    if files[proposal.file] != proposal.before:
+        raise HTTPException(status_code=409, detail=f"{proposal.file} changed since this was proposed. Ask the assistant to redo it.")
+    try:
+        _save_business_files(proposal.slug, {**files, proposal.file: proposal.after},
+                             f"Assistant: {proposal.summary}" if proposal.summary else "Assistant edit")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    proposal.status = "applied"
+    return {"proposal": proposal.to_dict(), "business": _business_overview(proposal.slug)}
+
+
+@app.post("/admin/api/assistant/proposals/{proposal_id}/dismiss")
+async def admin_dismiss_proposal(proposal_id: int, request: Request):
+    _require_admin(request)
+    proposal = _proposal(proposal_id)
+    proposal.status = "dismissed"
+    return {"proposal": proposal.to_dict()}
 
 
 @app.get("/admin/api/logs")

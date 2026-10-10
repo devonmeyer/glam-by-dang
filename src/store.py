@@ -54,6 +54,14 @@ CREATE TABLE IF NOT EXISTS business_settings (
     files TEXT NOT NULL,
     updated_at REAL NOT NULL
 );
+-- Every saved version of a business's settings, for history and undo.
+CREATE TABLE IF NOT EXISTS business_versions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    slug TEXT NOT NULL,
+    files TEXT NOT NULL,
+    note TEXT NOT NULL DEFAULT '',
+    saved_at REAL NOT NULL
+);
 -- One row per customer per day's summary; replaced as the conversation goes on.
 CREATE TABLE IF NOT EXISTS conversations (
     business_id INTEGER NOT NULL REFERENCES businesses(id),
@@ -184,6 +192,26 @@ class Store:
             "INSERT OR REPLACE INTO business_settings (slug, files, updated_at) VALUES (?, ?, ?)",
             (slug, json.dumps(files), self.clock()),
         )
+
+    def add_business_version(self, slug: str, files: dict[str, str], note: str) -> int:
+        with self._lock:
+            cur = self.conn.execute(
+                "INSERT INTO business_versions (slug, files, note, saved_at) VALUES (?, ?, ?, ?)",
+                (slug, json.dumps(files), note, self.clock()),
+            )
+            return cur.lastrowid
+
+    def business_versions(self, slug: str, limit: int = 50) -> list[tuple[int, str, float]]:
+        """(version id, note, saved_at), newest first."""
+        rows = self._execute(
+            "SELECT id, note, saved_at FROM business_versions WHERE slug = ? ORDER BY id DESC LIMIT ?",
+            (slug, limit),
+        )
+        return [(r[0], r[1], r[2]) for r in rows]
+
+    def business_version(self, version_id: int) -> Optional[tuple[str, dict[str, str]]]:
+        rows = self._execute("SELECT slug, files FROM business_versions WHERE id = ?", (version_id,))
+        return (rows[0][0], json.loads(rows[0][1])) if rows else None
 
     def discard_saved_business(self, slug: str) -> None:
         self._execute("DELETE FROM business_settings WHERE slug = ?", (slug,))

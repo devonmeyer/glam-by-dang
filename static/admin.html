@@ -56,6 +56,24 @@
   .link-box input { font-family: var(--mono); font-size: 13px; }
   .hidden { display: none !important; }
   @media (max-width: 600px) { header { flex-wrap: wrap; } }
+  .chat { display: flex; flex-direction: column; gap: 10px; min-height: 40vh; }
+  .msg { max-width: 85%; padding: 10px 13px; border-radius: 10px; white-space: pre-wrap; word-break: break-word; }
+  .msg.user { align-self: flex-end; background: var(--accent); color: #fff; }
+  .msg.assistant { align-self: flex-start; background: var(--panel); border: 1px solid var(--line); }
+  .msg.assistant a { color: var(--accent); }
+  .msg.working { color: var(--muted); font-style: italic; }
+  .proposal { border-left: 3px solid var(--accent); }
+  .proposal.applied { border-left-color: var(--ok); }
+  .proposal.dismissed, .proposal.replaced { opacity: .6; }
+  .diff { font-family: var(--mono); font-size: 12.5px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 0; overflow-x: auto; margin: 10px 0; max-height: 420px; overflow-y: auto; }
+  .diff div { white-space: pre-wrap; overflow-wrap: anywhere; padding: 0 10px; }
+  .diff .add { background: #e3f4ea; color: var(--ok); }
+  .diff .del { background: #fde8e7; color: var(--bad); }
+  .diff .hunk { color: var(--muted); }
+  .composer { margin-top: 14px; }
+  .composer textarea { min-height: 70px; font-family: inherit; font-size: 15px; }
+  .thumbs { display: flex; gap: 6px; flex-wrap: wrap; }
+  .thumbs img { height: 48px; border-radius: 6px; border: 1px solid var(--line); }
 </style>
 </head>
 <body>
@@ -78,6 +96,7 @@
     <h1>Mia Admin</h1>
     <nav>
       <button data-view="businesses" class="on">Businesses</button>
+      <button data-view="assistant">Assistant</button>
       <button data-view="logs">Logs</button>
     </nav>
     <button class="btn secondary" id="logout">Log out</button>
@@ -136,6 +155,11 @@
             <button class="btn" id="send-summary">Send now</button>
           </div>
           <pre id="summary-preview" class="hidden"></pre>
+        </div>
+        <div class="card">
+          <h3>History</h3>
+          <p class="muted small" style="margin-top:0">Every change saved in the panel or applied from the assistant. Restoring a version saves it as a new change, so nothing is lost.</p>
+          <div id="b-versions" class="small"></div>
         </div>
         <div class="card hidden" id="revert-card">
           <h3>Edited in the panel</h3>
@@ -196,6 +220,25 @@
     </section>
 
     <!-- Logs -->
+    <section id="view-assistant" class="hidden">
+      <div class="row" style="margin-bottom:12px">
+        <h2 class="grow">Assistant</h2>
+        <select id="as-business" style="width:auto"></select>
+        <button class="btn secondary" id="as-new">New chat</button>
+      </div>
+      <p class="muted small" style="margin-top:0">Ask for changes to a business's settings, tone, rules or facts in plain words, e.g. “update Glam by Dang's lash prices from this screenshot”. You can paste text or screenshots, or give a web page to read. Nothing changes until you apply a proposal.</p>
+      <div class="chat" id="as-chat"></div>
+      <div class="composer card">
+        <textarea id="as-input" placeholder="What should change?"></textarea>
+        <div class="thumbs" id="as-thumbs" style="margin-top:8px"></div>
+        <div class="row" style="margin-top:8px">
+          <label class="btn secondary" style="margin:0;color:var(--accent);font-size:15px">Add screenshot<input type="file" id="as-file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden></label>
+          <span class="grow muted small">Enter to send, Shift+Enter for a new line</span>
+          <button class="btn" id="as-send">Send</button>
+        </div>
+      </div>
+    </section>
+
     <section id="view-logs" class="hidden">
       <div class="row" style="margin-bottom:12px">
         <h2 class="grow">Logs</h2>
@@ -271,11 +314,11 @@ $("#logout").onclick = async () => { await api("/admin/api/logout", { method: "P
 
 // --- Navigation ---
 function show(view) {
-  for (const v of ["businesses", "business", "logs"]) $(`#view-${v}`).classList.toggle("hidden", v !== view);
+  for (const v of ["businesses", "business", "assistant", "logs"]) $(`#view-${v}`).classList.toggle("hidden", v !== view);
   $$("nav button").forEach(b => b.classList.toggle("on", b.dataset.view === (view === "business" ? "businesses" : view)));
   if (view === "logs") startLogs(); else stopLogs();
 }
-$$("nav button").forEach(b => b.onclick = () => go(b.dataset.view === "logs" ? "#logs" : "#"));
+$$("nav button").forEach(b => b.onclick = () => go(b.dataset.view === "businesses" ? "#" : "#" + b.dataset.view));
 function go(hash) {
   if (dirty && !confirm("Discard unsaved changes?")) return;
   dirty = false;
@@ -285,6 +328,7 @@ window.onhashchange = () => route();
 function route() {
   const h = location.hash;
   if (h === "#logs") show("logs");
+  else if (h === "#assistant") openAssistant();
   else if (h.startsWith("#b/")) openBusiness(decodeURIComponent(h.slice(3)));
   else { show("businesses"); loadBusinesses(); }
 }
@@ -370,6 +414,23 @@ async function openBusiness(slug) {
   renderHours(); renderTiers();
   $$("[data-file]").forEach(el => el.value = current.files[el.dataset.file] ?? "");
   selectTab("overview");
+  loadVersions();
+}
+
+async function loadVersions() {
+  try {
+    const r = await api(`/admin/api/businesses/${encodeURIComponent(current.slug)}/versions`);
+    $("#b-versions").innerHTML = r.versions.length ? `<table>${r.versions.map((v, i) => `<tr>
+        <td class="muted" style="white-space:nowrap">${new Date(v.saved_at * 1000).toLocaleString()}</td>
+        <td>${esc(v.note)}${i === 0 ? ` <span class="pill ok">current</span>` : ""}</td>
+        <td style="text-align:right">${i === 0 ? "" : `<button class="btn secondary small" data-restore="${v.id}">Restore</button>`}</td></tr>`).join("")}</table>`
+      : `<span class="muted">No changes saved in the panel yet.</span>`;
+    $$("[data-restore]").forEach(b => b.onclick = async () => {
+      if (!confirm("Restore this version? Mia uses it from her next reply.")) return;
+      try { await api(`/admin/api/businesses/${encodeURIComponent(current.slug)}/versions/${b.dataset.restore}/restore`, { method: "POST" }); toast("Version restored"); openBusiness(current.slug); }
+      catch (err) { toast(err.message, true); }
+    });
+  } catch (err) { toast(err.message, true); }
 }
 
 function renderHours() {
@@ -458,6 +519,121 @@ $("#send-summary").onclick = async () => {
   } catch (err) { toast(err.message, true); }
   btn.disabled = false;
 };
+
+// --- Assistant ---
+let chatId = null;
+try { chatId = sessionStorage.getItem("mia-chat"); } catch {}
+let pendingImages = [];
+let sending = false;
+
+function diffHtml(diff) {
+  return diff.split("\n").filter(l => !l.startsWith("---") && !l.startsWith("+++")).map(l => {
+    const cls = l.startsWith("+") ? "add" : l.startsWith("-") ? "del" : l.startsWith("@@") ? "hunk" : "";
+    return `<div class="${cls}">${esc(l) || " "}</div>`;
+  }).join("");
+}
+function businessName(slug) { return (businesses.find(b => b.slug === slug) || {}).name || slug; }
+function renderProposal(p) {
+  const el = document.createElement("div");
+  el.className = `card proposal ${p.status}`; el.id = `proposal-${p.id}`; el.style.margin = "0";
+  const status = { applied: `<span class="pill ok">Applied</span>`, dismissed: `<span class="pill">Dismissed</span>`,
+                   replaced: `<span class="pill">Replaced by a newer proposal</span>` }[p.status] || "";
+  el.innerHTML = `<div class="row"><strong class="grow">${esc(businessName(p.slug))} · ${esc(p.file)}</strong>${status}</div>
+    <div class="small" style="margin-top:4px">${esc(p.summary)}</div>
+    <div class="diff">${diffHtml(p.diff)}</div>
+    ${p.status === "pending" ? `<div class="row"><button class="btn" data-apply="${p.id}">Apply</button>
+      <button class="btn secondary" data-dismiss="${p.id}">Dismiss</button></div>` : ""}`;
+  $("[data-apply]", el)?.addEventListener("click", () => decide(p.id, "apply"));
+  $("[data-dismiss]", el)?.addEventListener("click", () => decide(p.id, "dismiss"));
+  return el;
+}
+// Bold, inline code and links in the assistant's replies; everything else stays plain text.
+function lightMarkdown(text) {
+  return esc(text)
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)"<>]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+    .replace(/(^|[\s(])(https?:\/\/[^\s)"<>]+)/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
+}
+function addMessage(role, text, extra = "") {
+  const el = document.createElement("div");
+  el.className = `msg ${role}`;
+  if (role === "assistant") el.innerHTML = lightMarkdown(text); else el.textContent = text;
+  if (extra) el.insertAdjacentHTML("beforeend", extra);
+  $("#as-chat").appendChild(el);
+  el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  return el;
+}
+async function decide(id, action) {
+  try {
+    const r = await api(`/admin/api/assistant/proposals/${id}/${action}`, { method: "POST" });
+    $(`#proposal-${id}`).replaceWith(renderProposal(r.proposal));
+    toast(action === "apply" ? "Applied. Mia uses it from her next reply." : "Dismissed");
+  } catch (err) { toast(err.message, true); }
+}
+async function openAssistant() {
+  show("assistant");
+  if (!businesses.length) { try { businesses = (await api("/admin/api/businesses")).businesses; } catch {} }
+  const sel = $("#as-business"), keep = sel.value || current?.slug || "";
+  sel.innerHTML = `<option value="">Any business</option>` + businesses.map(b => `<option value="${esc(b.slug)}">${esc(b.name)}</option>`).join("");
+  sel.value = keep;
+  if (chatId && !$("#as-chat").children.length) {
+    try {
+      const r = await api(`/admin/api/assistant/${chatId}`);
+      for (const m of r.transcript) addMessage(m.role, m.text, m.images ? `<div class="small" style="opacity:.8">+ ${m.images} screenshot${m.images > 1 ? "s" : ""}</div>` : "");
+      for (const p of r.proposals) $("#as-chat").appendChild(renderProposal(p));
+    } catch { chatId = null; }
+  }
+  if (!$("#as-chat").children.length) addMessage("assistant", "Hi! What would you like to change?");
+  $("#as-input").focus();
+}
+$("#as-new").onclick = () => {
+  chatId = null; try { sessionStorage.removeItem("mia-chat"); } catch {}
+  $("#as-chat").innerHTML = ""; addMessage("assistant", "Hi! What would you like to change?");
+};
+function addImages(files) {
+  for (const f of files) {
+    if (!/^image\/(png|jpeg|gif|webp)$/.test(f.type)) { toast("Screenshots must be PNG, JPEG, GIF or WebP", true); continue; }
+    if (f.size > 5e6) { toast("Each screenshot must be under 5 MB", true); continue; }
+    if (pendingImages.length >= 4) { toast("At most 4 screenshots per message", true); break; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      pendingImages.push({ media_type: f.type, data: reader.result.split(",")[1], url: reader.result });
+      renderThumbs();
+    };
+    reader.readAsDataURL(f);
+  }
+}
+function renderThumbs() { $("#as-thumbs").innerHTML = pendingImages.map(i => `<img src="${i.url}" alt="">`).join(""); }
+$("#as-file").onchange = (e) => { addImages(e.target.files); e.target.value = ""; };
+$("#as-input").addEventListener("paste", (e) => {
+  const files = [...(e.clipboardData?.files || [])];
+  if (files.length) { e.preventDefault(); addImages(files); }
+});
+$("#as-input").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChat(); } });
+$("#as-send").onclick = () => sendChat();
+async function sendChat() {
+  const text = $("#as-input").value.trim();
+  if (!text || sending) return;
+  sending = true; $("#as-send").disabled = true;
+  const images = pendingImages; pendingImages = []; renderThumbs();
+  $("#as-input").value = "";
+  addMessage("user", text, images.length ? `<div class="small" style="opacity:.8">+ ${images.length} screenshot${images.length > 1 ? "s" : ""}</div>` : "");
+  const working = addMessage("assistant working", "Working on it… reading pages can take a minute.");
+  try {
+    const r = await api("/admin/api/assistant", { method: "POST", body: {
+      message: text, chat_id: chatId || "", viewing: $("#as-business").value,
+      images: images.map(({ media_type, data }) => ({ media_type, data })) } });
+    chatId = r.chat_id; try { sessionStorage.setItem("mia-chat", chatId); } catch {}
+    working.remove();
+    addMessage("assistant", r.reply);
+    for (const p of r.proposals) $("#as-chat").appendChild(renderProposal(p));
+    $("#as-chat").lastElementChild?.scrollIntoView({ block: "end", behavior: "smooth" });
+  } catch (err) {
+    working.remove(); addMessage("assistant", "Something went wrong: " + err.message);
+  }
+  sending = false; $("#as-send").disabled = false; $("#as-input").focus();
+}
 
 // --- Logs ---
 let logTimer = null;
