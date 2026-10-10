@@ -25,7 +25,7 @@ import instagram_connect
 from connected_tokens import ConnectedTokenStore, crypto_configured
 from instagram_connect import ConnectError
 from instagram_token import TokenStore
-from business import Business, business_slugs, default_business, load_business
+from business import DEFAULT_BUSINESS_SLUG, Business, business_slugs, default_business, load_business
 from email_sender import email_configured, send_email
 from store import ConversationRecord, Store
 
@@ -691,15 +691,33 @@ async def _connected_token_refresh_scheduler() -> None:
         await asyncio.sleep(60 * 60)
 
 
+def _require_admin(x_admin_secret: str) -> None:
+    admin_secret = os.environ.get("ADMIN_SECRET", "")
+    if not admin_secret or not hmac.compare_digest(x_admin_secret, admin_secret):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+
+def _admin_business(slug: str) -> Business:
+    if slug not in business_slugs():
+        raise HTTPException(status_code=404, detail=f"No businesses/{slug}/ folder")
+    return load_business(slug)
+
+
 @app.post("/trigger-summary")
-async def trigger_summary():
-    await _send_daily_summary()
+async def trigger_summary(slug: str = DEFAULT_BUSINESS_SLUG, x_admin_secret: str = Header("")):
+    """Send a business's daily summary now (?slug=..., Kha's by default)."""
+    _require_admin(x_admin_secret)
+    await _send_daily_summary(_admin_business(slug).slug)
     return {"status": "ok"}
 
 
 @app.get("/preview-summary")
-async def preview_summary():
-    lines = _summary_lines(default_business(), store.conversations(business_id()))
+async def preview_summary(slug: str = DEFAULT_BUSINESS_SLUG, x_admin_secret: str = Header("")):
+    """Show what a business's summary would say, without sending or clearing it."""
+    _require_admin(x_admin_secret)
+    business = _admin_business(slug)
+    biz_id = store.ensure_business(business.slug, business.name)
+    lines = _summary_lines(business, store.conversations(biz_id))
     return {"chunks": _dm_chunks(lines)}
 
 
@@ -804,25 +822,36 @@ a.button{{display:inline-block;background:#222;color:#fff;padding:.75rem 1.25rem
 </head><body><h1>{escape(title)}</h1>{body_html}</body></html>""")
 
 
-class InviteRequest(BaseModel):
+class SlugRequest(BaseModel):
     slug: str
 
 
 @app.post("/admin/invites")
-async def create_invite(req: InviteRequest, x_admin_secret: str = Header("")):
+async def create_invite(req: SlugRequest, x_admin_secret: str = Header("")):
     """Make a one-time link an owner opens to connect their Instagram to a business."""
-    admin_secret = os.environ.get("ADMIN_SECRET", "")
-    if not admin_secret or not hmac.compare_digest(x_admin_secret, admin_secret):
-        raise HTTPException(status_code=403, detail="Forbidden")
-    if req.slug not in business_slugs():
-        raise HTTPException(status_code=404, detail=f"No businesses/{req.slug}/ folder")
-    business = load_business(req.slug)
+    _require_admin(x_admin_secret)
+    business = _admin_business(req.slug)
     invite = secrets.token_urlsafe(24)
     expires_at = time.time() + INVITE_TTL
     store.create_invite(_hash_invite(invite), store.ensure_business(business.slug, business.name), expires_at)
     logger.info("Connect invite created for %s", business.slug)
     return {"url": f"{instagram_connect.base_url()}/connect?invite={invite}",
             "expires_at": datetime.fromtimestamp(expires_at, tz=ET).isoformat()}
+
+
+@app.post("/admin/delete-data")
+async def delete_business_data(req: SlugRequest, x_admin_secret: str = Header("")):
+    """For an owner who asks directly: disconnect their Instagram and delete what Mia stored."""
+    _require_admin(x_admin_secret)
+    business = _admin_business(req.slug)
+    biz_id = store.ensure_business(business.slug, business.name)
+    accounts = store.accounts_for_business(biz_id)
+    for account_id in accounts:
+        store.disconnect_account(account_id)
+        _connected_tokens.pop(account_id, None)
+    store.delete_business_history(biz_id)
+    logger.info("Deleted stored data for %s (%d accounts disconnected)", business.slug, len(accounts))
+    return {"status": "deleted", "accounts_disconnected": len(accounts)}
 
 
 @app.get("/connect")

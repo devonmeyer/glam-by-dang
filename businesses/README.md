@@ -34,4 +34,22 @@ One-time Meta app dashboard settings (Instagram > API setup with Instagram login
 - Deauthorize callback URL: `https://itsmia.info/auth/instagram/deauthorize`
 - Data deletion request URL: `https://itsmia.info/auth/instagram/delete`
 
+## Admin commands
+
+All need the `X-Admin-Secret` header. Leave out `?slug=` to use Kha's business.
+
+```
+# See what a business's summary would say (doesn't send or clear anything)
+curl "https://itsmia.info/preview-summary?slug=<slug>" -H "X-Admin-Secret: $ADMIN_SECRET"
+
+# Send a business's summary now (clears the conversations it covers)
+curl -X POST "https://itsmia.info/trigger-summary?slug=<slug>" -H "X-Admin-Secret: $ADMIN_SECRET"
+
+# An owner asked directly for their data to be deleted: disconnects their Instagram
+# and deletes their stored conversation summaries
+curl -X POST https://itsmia.info/admin/delete-data \
+  -H "X-Admin-Secret: $ADMIN_SECRET" -H "Content-Type: application/json" \
+  -d '{"slug": "<slug>"}'
+```
+
 Railway variables: `INSTAGRAM_APP_ID`, `PUBLIC_BASE_URL`, `ADMIN_SECRET`, `TOKEN_ENCRYPTION_KEY` (see `.env.example`), plus the existing `META_APP_SECRET`.
