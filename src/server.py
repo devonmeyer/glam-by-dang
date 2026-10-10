@@ -20,7 +20,8 @@ from pathlib import Path
 import httpx
 
 from instagram_token import TokenStore
-from business import Business, default_business, load_business
+from business import Business, business_slugs, default_business, load_business
+from email_sender import email_configured, send_email
 from store import ConversationRecord, Store
 
 logging.basicConfig(
@@ -543,11 +544,11 @@ async def _handle_instagram_dm(account: Account, sender_id: str, text: str) -> N
     session.debounce_task = asyncio.create_task(debounce())
 
 
-async def _build_summary_chunks(records: list[ConversationRecord]) -> list[str]:
-    now_et = datetime.now(ET)
-    date_str = now_et.strftime("%A, %B %-d")
+def _summary_lines(business: Business, records: list[ConversationRecord]) -> list[str]:
+    date_str = datetime.now(business.tz).strftime("%A, %B %-d")
 
-    token_note = token_store.health_note()
+    tokens = _token_store_for(business.slug)
+    token_note = tokens.health_note() if tokens else ""
     if token_note:
         token_note = f"{token_note}\n\n"
 
@@ -570,7 +571,11 @@ async def _build_summary_chunks(records: list[ConversationRecord]) -> list[str]:
         for r in handled:
             actions = ", ".join(r.actions_taken) if r.actions_taken else "Handled"
             lines.append(f"• {r.display_name} — {r.conversation_summary} — {actions}\n")
+    return lines
 
+
+def _dm_chunks(lines: list[str]) -> list[str]:
+    """Split summary lines into pieces short enough for one Instagram DM each."""
     chunks: list[str] = []
     current = ""
     for line in lines:
@@ -584,41 +589,55 @@ async def _build_summary_chunks(records: list[ConversationRecord]) -> list[str]:
     return chunks
 
 
-async def _send_daily_summary() -> None:
-    if not DAILY_SUMMARY_RECIPIENT:
-        logger.warning("DAILY_SUMMARY_RECIPIENT not set — skipping daily summary")
-        return
+async def _send_daily_summary(slug: Optional[str] = None) -> None:
+    """Email the owner their summary; Kha falls back to the old Instagram DM until email is set up."""
+    business = load_business(slug) if slug else default_business()
+    biz_id = store.ensure_business(business.slug, business.name)
+    records = store.conversations(biz_id)
+    lines = _summary_lines(business, records)
 
-    records = store.conversations(business_id())
-    chunks = await _build_summary_chunks(records)
-    escalations = [r for r in records if r.is_escalation]
-    handled = [r for r in records if not r.is_escalation]
+    if email_configured() and business.summary_email:
+        subject = f"{business.assistant_name}'s daily summary for {business.name} — " \
+                  f"{datetime.now(business.tz).strftime('%A, %B %-d')}"
+        sent = await send_email(business.summary_email, subject, "".join(lines).rstrip())
+    elif business.slug == default_business().slug and DAILY_SUMMARY_RECIPIENT:
+        for chunk in _dm_chunks(lines):
+            await _send_instagram_message(default_account(), DAILY_SUMMARY_RECIPIENT, chunk)
+        sent = True
+    else:
+        logger.warning("No summary email for %s (or email not configured) — skipping daily summary", business.slug)
+        sent = False
 
-    for chunk in chunks:
-        await _send_instagram_message(default_account(), DAILY_SUMMARY_RECIPIENT, chunk)
+    if sent and records:
+        store.clear_conversations(biz_id, up_to=records[-1].timestamp)
+    logger.info("Daily summary for %s %s: %d conversations",
+                business.slug, "sent" if sent else "not sent", len(records))
 
-    if records:
-        store.clear_conversations(business_id(), up_to=records[-1].timestamp)
-    logger.info("Daily summary sent: %d escalations, %d handled", len(escalations), len(handled))
+
+def _due_for_summary(at: datetime) -> list[Business]:
+    """Businesses whose local summary hour starts at this moment."""
+    return [
+        b for b in (load_business(s) for s in business_slugs())
+        if at.astimezone(b.tz).hour == b.summary_hour
+    ]
 
 
 async def _daily_summary_scheduler() -> None:
+    """Wake at the top of every hour and send summaries to owners whose local hour has come."""
     while True:
         now = datetime.now(ET)
-        target = now.replace(hour=10, minute=0, second=0, microsecond=0)
-        if now >= target:
-            target += timedelta(days=1)
-        wait_seconds = (target - now).total_seconds()
-        logger.info("Daily summary scheduled in %.0f seconds", wait_seconds)
-        await asyncio.sleep(wait_seconds)
-        try:
-            await _check_token_health()
-        except Exception as e:
-            logger.error("Token health check failed: %s", e, exc_info=True)
-        try:
-            await _send_daily_summary()
-        except Exception as e:
-            logger.error("Daily summary failed: %s", e, exc_info=True)
+        target = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+        await asyncio.sleep((target - now).total_seconds())
+        for business in _due_for_summary(target):
+            if business.slug == default_business().slug:
+                try:
+                    await _check_token_health()
+                except Exception as e:
+                    logger.error("Token health check failed: %s", e, exc_info=True)
+            try:
+                await _send_daily_summary(business.slug)
+            except Exception as e:
+                logger.error("Daily summary for %s failed: %s", business.slug, e, exc_info=True)
 
 
 async def _token_refresh_scheduler() -> None:
@@ -642,8 +661,8 @@ async def trigger_summary():
 
 @app.get("/preview-summary")
 async def preview_summary():
-    chunks = await _build_summary_chunks(store.conversations(business_id()))
-    return {"chunks": chunks}
+    lines = _summary_lines(default_business(), store.conversations(business_id()))
+    return {"chunks": _dm_chunks(lines)}
 
 
 @app.get("/webhook")

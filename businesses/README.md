@@ -4,7 +4,7 @@ Each folder here is one business Mia answers DMs for. The folder name is the bus
 
 | File | What goes in it |
 | --- | --- |
-| `business.json` | Names, timezone, opening hours, booking and review links, the greeting, escalation and out-of-hours lines, cancellation tiers |
+| `business.json` | Names, timezone, opening hours, booking and review links, the greeting, escalation and out-of-hours lines, cancellation tiers, and `summary_email` / `summary_hour` (local time) for the owner's daily summary |
 | `about.md` | Who the assistant works for, and its tone |
 | `rules.md` | The business's reply rules and its links section |
 | `context.md` | Facts and prices the assistant answers from |
