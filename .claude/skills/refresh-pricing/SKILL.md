@@ -1,11 +1,11 @@
 ---
 name: refresh-pricing
-description: Use this skill when asked to check, refresh, sync, or audit Mia's pricing and policy info against Kha's live web presence — e.g. "check current pricing", "is our pricing up to date", "sync business context", "audit policies against the website". Fetches Kha's live booking page, website, and policy page, diffs them against src/business_context.py and the cancellation-tier logic in src/agent.py, and reports what changed before editing anything.
+description: Use this skill when asked to check, refresh, sync, or audit Mia's pricing and policy info against Kha's live web presence — e.g. "check current pricing", "is our pricing up to date", "sync business context", "audit policies against the website". Fetches Kha's live booking page, website, and policy page, diffs them against Kha's business folder (businesses/glam-by-dang/context.md, rules.md and the cancellation tiers in business.json), and reports what changed before editing anything.
 ---
 
 # Refresh pricing & policy context
 
-`src/business_context.py` (and the cancellation-tier logic hardcoded in `src/agent.py`, ~lines 63-68) are a manually maintained snapshot of Kha's real pricing and policies. They drift from reality whenever Kha updates Fresha or her policy post without telling anyone. This skill re-checks the live sources and reports drift — it does not silently apply changes.
+`businesses/glam-by-dang/context.md` (prices and facts), the cancellation-tier rule in `businesses/glam-by-dang/rules.md`, and `cancellation_tiers` in `businesses/glam-by-dang/business.json` are a manually maintained snapshot of Kha's real pricing and policies. They drift from reality whenever Kha updates Fresha or her policy post without telling anyone. This skill re-checks the live sources and reports drift — it does not silently apply changes.
 
 ## Live sources to check
 
@@ -29,11 +29,11 @@ description: Use this skill when asked to check, refresh, sync, or audit Mia's p
 ## Process
 
 1. WebFetch each source above with a prompt asking for exact prices / policy wording verbatim (not paraphrased) — vague prompts tend to get summarized into "no pricing shown."
-2. Read the current `src/business_context.py` and the cancellation-tier rule block in `src/agent.py`.
+2. Read the current `businesses/glam-by-dang/context.md`, the cancellation-tier rule in `businesses/glam-by-dang/rules.md`, and `cancellation_tiers` in `businesses/glam-by-dang/business.json`.
 3. Diff live vs. current, service by service and policy tier by policy tier. Call out:
    - Numeric price changes
    - "Flat" vs. "from/starting at" framing changes (this changes how Mia is allowed to phrase a price)
-   - New services not yet in `business_context.py`
+   - New services not yet in `context.md`
    - Policy tier/threshold changes (e.g. day/hour cutoffs, refund vs. credit vs. nothing, deposit-only vs. full-appointment-value charges)
-4. Report the diff and proposed edits — do not edit `business_context.py` or `agent.py` until the user confirms, since pricing/policy mistakes go straight to real customers.
-5. Once confirmed, apply edits to both files (`business_context.py` for the factual snapshot, `agent.py` if hardcoded logic like the cancellation-tier calculation needs to match), then add/update a corresponding case in `tests/run_tests.py` and run it (`python3 tests/run_tests.py`) to confirm the new wording/logic actually surfaces in a reply.
+4. Report the diff and proposed edits — do not edit Kha's business folder until the user confirms, since pricing/policy mistakes go straight to real customers.
+5. Once confirmed, apply edits in `businesses/glam-by-dang/` (`context.md` for the factual snapshot; `rules.md` and `business.json` `cancellation_tiers` together if the cancellation policy changes, since the rule text and the per-day status lines must match), then add/update a corresponding case in `tests/run_tests.py` and run it (`python3 tests/run_tests.py`) to confirm the new wording/logic actually surfaces in a reply.

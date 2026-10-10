@@ -1,0 +1,24 @@
+{
+  "name": "Glam by Dang NYC",
+  "owner_name": "Kha",
+  "assistant_name": "Mia",
+  "timezone": "America/New_York",
+  "city": "New York City",
+  "hours": {
+    "Tuesday": ["11:00", "20:00"],
+    "Wednesday": ["11:00", "20:00"],
+    "Thursday": ["11:00", "20:00"],
+    "Friday": ["11:00", "20:00"],
+    "Saturday": ["10:00", "16:00"]
+  },
+  "booking_link": "https://www.fresha.com/a/glam-by-dang-new-york-37-west-26th-street-qthgd9hw/booking?menu=true&pId=599800&dppub=true&utm_content=link_in_bio&utm_medium=social&utm_source=ig&employeeId=1757692&cartId=6cbcfff7-65bc-4ba4-ad4d-e67846bda781",
+  "review_link": "https://search.google.com/local/writereview?placeid=ChIJRfD3UjtZwokRWXQjp393i-k",
+  "greeting": "Hi, I'm Mia, Kha's assistant! ",
+  "escalation_reply": "I'll make sure Kha sees this and gets back to you! 🤍",
+  "out_of_hours_note": "Kha's hours are Tue–Fri 11am–8pm, Sat 10am–4pm — she'll follow up personally when she's back.",
+  "cancellation_tiers": [
+    {"min_hours": 168, "status": "credit eligible toward a future booking (7+ days away) — not a cash refund"},
+    {"min_hours": 24, "status": "NO refund or credit (less than 7 days away)"},
+    {"min_hours": 0, "status": "100% of appointment value charged (within 24 hours, or a no-show)"}
+  ]
+}

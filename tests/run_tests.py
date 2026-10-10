@@ -14,7 +14,13 @@ load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from agent import process_message, BOOKING_LINK, GOOGLE_REVIEW_LINK, ESCALATION_REPLY
+from agent import process_message
+from business import default_business
+
+BUSINESS = default_business()
+BOOKING_LINK = BUSINESS.booking_link
+GOOGLE_REVIEW_LINK = BUSINESS.review_link
+ESCALATION_REPLY = BUSINESS.escalation_reply
 
 PASSED = []
 FAILED = []

@@ -19,7 +19,8 @@ from pathlib import Path
 import httpx
 
 from instagram_token import TokenStore
-from store import DEFAULT_BUSINESS_SLUG, ConversationRecord, Store
+from business import default_business
+from store import ConversationRecord, Store
 
 logging.basicConfig(
     level=logging.INFO,
@@ -126,7 +127,7 @@ def business_id() -> int:
     """Kha's business is the only one until webhooks are routed by account."""
     global _business_id
     if _business_id is None:
-        _business_id = store.ensure_business(DEFAULT_BUSINESS_SLUG, "Glam by Dang NYC")
+        _business_id = store.ensure_business(default_business().slug, default_business().name)
     return _business_id
 
 
@@ -259,7 +260,7 @@ async def chat(req: MessageRequest):
                 "action": "reply",
                 "category": "escalate",
                 "classification": {"confidence": "low"},
-                "messages": ["I'll make sure Kha sees this and gets back to you! 🤍"],
+                "messages": [default_business().escalation_reply],
                 "escalation": None,
             }
 
@@ -486,7 +487,7 @@ async def _handle_instagram_dm(sender_id: str, text: str) -> None:
             result = {
                 "action": "reply",
                 "category": "escalate",
-                "messages": ["I'll make sure Kha sees this and gets back to you! 🤍"],
+                "messages": [default_business().escalation_reply],
                 "escalation": None,
                 "conversation_summary": "",
                 "actions_taken": [],
