@@ -1,7 +1,8 @@
 """Per-business configuration loaded from businesses/<slug>/.
 
 Each business folder holds:
-- business.json  settings: names, timezone, hours, links, canned replies, cancellation tiers
+- business.json  settings: names, timezone, hours, links, canned replies, cancellation tiers,
+                 and where and when the owner's daily summary goes
 - about.md       who the assistant works for, and its tone
 - rules.md       the business's reply rules and links section
 - context.md     facts and prices the assistant answers from
@@ -58,6 +59,8 @@ class Business:
     escalation_reply: str
     out_of_hours_note: str
     cancellation_tiers: tuple[CancellationTier, ...]
+    summary_email: str
+    summary_hour: int
     about: str
     rules: str
     context: str
@@ -124,10 +127,17 @@ def load_business(slug: str) -> Business:
         escalation_reply=cfg["escalation_reply"],
         out_of_hours_note=cfg["out_of_hours_note"],
         cancellation_tiers=tuple(tiers),
+        summary_email=cfg.get("summary_email", ""),
+        summary_hour=cfg.get("summary_hour", 10),
         about=_read(folder / "about.md"),
         rules=_read(folder / "rules.md"),
         context=_read(folder / "context.md"),
     )
+
+
+def business_slugs() -> list[str]:
+    """Every business with a folder in businesses/."""
+    return sorted(p.parent.name for p in BUSINESSES_DIR.glob("*/business.json"))
 
 
 def default_business() -> Business:
