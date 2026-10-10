@@ -64,6 +64,30 @@ def _note_auth_failure(resp: httpx.Response, action: str) -> None:
         token_store.record_failure(msg)
 
 
+async def _check_token_health() -> None:
+    """Probe the token with a cheap API call and log a warning if it is dead, failing to
+    refresh, or close to expiry. Runs at startup and before each daily summary, so the
+    Railway logs carry the warning even when the summary DM itself can't be sent."""
+    token = token_store.token
+    if not token:
+        return
+    try:
+        async with httpx.AsyncClient() as http:
+            resp = await http.get(
+                f"{GRAPH_API_BASE}/me",
+                params={"fields": "user_id"},
+                headers={"Authorization": f"Bearer {token.strip()}"},
+            )
+        if resp.status_code != 200:
+            logger.warning("Token health check failed %s: %s", resp.status_code, resp.text)
+            _note_auth_failure(resp, "the daily token check")
+    except httpx.HTTPError as e:
+        logger.warning("Token health check could not reach Instagram: %s", e)
+    note = token_store.health_note()
+    if note:
+        logger.warning(note)
+
+
 async def _refresh_instagram_token() -> bool:
     token = token_store.token
     if not token:
@@ -115,6 +139,7 @@ daily_log: dict[str, ConversationRecord] = {}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     token_store.load()
+    asyncio.create_task(_check_token_health())
     asyncio.create_task(_daily_summary_scheduler())
     asyncio.create_task(_token_refresh_scheduler())
     yield
@@ -568,6 +593,10 @@ async def _daily_summary_scheduler() -> None:
         wait_seconds = (target - now).total_seconds()
         logger.info("Daily summary scheduled in %.0f seconds", wait_seconds)
         await asyncio.sleep(wait_seconds)
+        try:
+            await _check_token_health()
+        except Exception as e:
+            logger.error("Token health check failed: %s", e, exc_info=True)
         try:
             await _send_daily_summary()
         except Exception as e:
