@@ -276,6 +276,23 @@
   </div>
 
   <script>
+    // Production requires the simulator key (SIMULATOR_SECRET). Ask once, remember it,
+    // and re-ask if the server rejects it.
+    const KEY_STORAGE = "simulatorKey";
+    function loadKey() { try { return localStorage.getItem(KEY_STORAGE) || ""; } catch { return ""; } }
+    function saveKey(k) { try { localStorage.setItem(KEY_STORAGE, k); } catch {} }
+
+    async function simFetch(url, opts = {}) {
+      const send = () => fetch(url, { ...opts, headers: { ...(opts.headers || {}), "X-Simulator-Key": loadKey() } });
+      let res = await send();
+      if (res.status === 401) {
+        const k = prompt("Simulator key:");
+        if (k) { saveKey(k.trim()); res = await send(); }
+      }
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      return res;
+    }
+
     const sessionId = "session_" + Math.random().toString(36).slice(2);
     const chatWindow   = document.getElementById("chat-window");
     const input        = document.getElementById("message-input");
@@ -429,7 +446,7 @@
 
     handoffBtn.addEventListener("click", async () => {
       setKhaActive(false);
-      await fetch("/reset", {
+      await simFetch("/reset", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ session_id: sessionId }),
       });
@@ -571,10 +588,10 @@
       addCustomerMessage(text);
 
       if (!awaitReply || awaitingResponse) {
-        fetch("/chat", {
+        simFetch("/chat", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ session_id: sessionId, message: text }),
-        });
+        }).catch(err => addSystemNote("Error: " + err.message));
         return;
       }
 
@@ -583,7 +600,7 @@
       addTyping();
 
       try {
-        const res  = await fetch("/chat", {
+        const res  = await simFetch("/chat", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ session_id: sessionId, message: text }),
         });
@@ -603,7 +620,7 @@
 
     async function sendKhaMessage(text) {
       if (!text.trim()) return;
-      await fetch("/kha-reply", {
+      await simFetch("/kha-reply", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ session_id: sessionId, message: text }),
       });
@@ -637,7 +654,7 @@
       btn.disabled = true;
       btn.textContent = "Loading…";
       try {
-        const res = await fetch("/preview-summary");
+        const res = await simFetch("/preview-summary");
         const data = await res.json();
         removeEmpty();
         data.chunks.forEach((chunk, i) => {
@@ -658,7 +675,7 @@
     resetBtn.addEventListener("click", async () => {
       awaitingResponse = false;
       setKhaActive(false);
-      await fetch("/reset", {
+      await simFetch("/reset", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ session_id: sessionId }),
       });
@@ -673,7 +690,7 @@
       // Reset first
       awaitingResponse = false;
       setKhaActive(false);
-      await fetch("/reset", {
+      await simFetch("/reset", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ session_id: sessionId }),
       });
@@ -687,7 +704,7 @@
 
       for (const step of tc.steps) {
         if (step.type === "seed") {
-          await fetch("/seed-history", {
+          await simFetch("/seed-history", {
             method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ session_id: sessionId, history: step.history }),
           });

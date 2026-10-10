@@ -11,7 +11,7 @@ from dataclasses import dataclass, field as dc_field
 from datetime import datetime, timedelta
 from typing import Optional
 from zoneinfo import ZoneInfo
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel
@@ -195,7 +195,29 @@ class ResetRequest(BaseModel):
     session_id: str
 
 
-@app.post("/chat")
+SIMULATOR_SECRET = os.environ.get("SIMULATOR_SECRET", "")
+# Railway sets these on every deploy; their presence means we're in production.
+IS_PRODUCTION = any(os.environ.get(v) for v in (
+    "RAILWAY_ENVIRONMENT", "RAILWAY_ENVIRONMENT_NAME", "RAILWAY_ENVIRONMENT_ID",
+))
+
+
+def require_simulator_key(request: Request) -> None:
+    """Guard the simulator/admin routes.
+
+    With SIMULATOR_SECRET set, callers must send it in X-Simulator-Key.
+    Without it, the routes are open locally but refuse every request on Railway,
+    so a missing env var never leaves production exposed.
+    """
+    if SIMULATOR_SECRET:
+        provided = request.headers.get("X-Simulator-Key", "")
+        if not hmac.compare_digest(provided.encode(), SIMULATOR_SECRET.encode()):
+            raise HTTPException(status_code=401, detail="Invalid simulator key")
+    elif IS_PRODUCTION:
+        raise HTTPException(status_code=503, detail="Simulator disabled: SIMULATOR_SECRET not set")
+
+
+@app.post("/chat", dependencies=[Depends(require_simulator_key)])
 async def chat(req: MessageRequest):
     if not req.message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty.")
@@ -277,7 +299,7 @@ async def chat(req: MessageRequest):
     return await future
 
 
-@app.post("/kha-reply")
+@app.post("/kha-reply", dependencies=[Depends(require_simulator_key)])
 async def kha_reply(req: KhaReplyRequest):
     """Simulate Kha replying directly — marks assistant as inactive for this conversation."""
     session = get_session(req.session_id)
@@ -288,7 +310,7 @@ async def kha_reply(req: KhaReplyRequest):
     return {"status": "ok"}
 
 
-@app.post("/seed-history")
+@app.post("/seed-history", dependencies=[Depends(require_simulator_key)])
 async def seed_history(req: SeedHistoryRequest):
     """Pre-load a conversation history to simulate a returning customer."""
     session = get_session(req.session_id)
@@ -302,7 +324,7 @@ async def seed_history(req: SeedHistoryRequest):
     return {"status": "ok"}
 
 
-@app.post("/reset")
+@app.post("/reset", dependencies=[Depends(require_simulator_key)])
 async def reset(req: ResetRequest):
     if req.session_id in sessions:
         s = sessions[req.session_id]
@@ -601,13 +623,13 @@ async def _token_refresh_scheduler() -> None:
             await asyncio.sleep(TOKEN_REFRESH_RETRY_INTERVAL)
 
 
-@app.post("/trigger-summary")
+@app.post("/trigger-summary", dependencies=[Depends(require_simulator_key)])
 async def trigger_summary():
     await _send_daily_summary()
     return {"status": "ok"}
 
 
-@app.get("/preview-summary")
+@app.get("/preview-summary", dependencies=[Depends(require_simulator_key)])
 async def preview_summary():
     chunks = await _build_summary_chunks()
     return {"chunks": chunks}
