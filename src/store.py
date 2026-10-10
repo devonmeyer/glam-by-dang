@@ -16,8 +16,6 @@ from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_BUSINESS_SLUG = "glam-by-dang"
-
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS businesses (
     id INTEGER PRIMARY KEY,

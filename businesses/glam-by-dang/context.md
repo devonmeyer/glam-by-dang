@@ -1,4 +1,4 @@
-BUSINESS_CONTEXT = """
+
 ## About Glam by Dang
 
 **Business Name:** Glam by Dang NYC
@@ -176,4 +176,3 @@ For event inquiries, clients share details here and Kha follows up directly.
 
 ## Review Links (for follow-up prompts)
 - Google: Search "Glam by Dang NYC" on Google Maps to leave a review
-"""
