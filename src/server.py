@@ -7,7 +7,6 @@ import hmac
 import hashlib
 import json
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field as dc_field
 from datetime import datetime, timedelta
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -20,6 +19,7 @@ from pathlib import Path
 import httpx
 
 from instagram_token import TokenStore
+from store import DEFAULT_BUSINESS_SLUG, ConversationRecord, Store
 
 logging.basicConfig(
     level=logging.INFO,
@@ -113,27 +113,21 @@ async def _refresh_instagram_token() -> bool:
     return True
 
 BOT_SENT_TTL = 24 * 60 * 60
-bot_sent_ids: dict[str, float] = {}        # message_id → sent_timestamp
-kha_confirmed_senders: dict[str, float] = {}  # user_psid → timestamp of last confirmed Kha reply
 own_account_id: str = ""                   # set from first incoming webhook
 
 from agent import process_message
 
-server_start_time: float = time.time()
-last_summary_time: float = time.time()  # initialise to start time — no false restart flag on first run
+# Summary log, owner takeovers and Mia's sent-message ids, persisted across redeploys
+store = Store()
+_business_id: Optional[int] = None
 
 
-@dataclass
-class ConversationRecord:
-    sender_id: str
-    display_name: str = ""
-    conversation_summary: str = ""
-    actions_taken: list = dc_field(default_factory=list)
-    is_escalation: bool = False
-    timestamp: float = 0.0
-
-
-daily_log: dict[str, ConversationRecord] = {}
+def business_id() -> int:
+    """Kha's business is the only one until webhooks are routed by account."""
+    global _business_id
+    if _business_id is None:
+        _business_id = store.ensure_business(DEFAULT_BUSINESS_SLUG, "Glam by Dang NYC")
+    return _business_id
 
 
 @asynccontextmanager
@@ -343,17 +337,13 @@ async def _send_instagram_message(recipient_id: str, text: str) -> None:
 
 
 def _record_bot_message(msg_id: str) -> None:
-    bot_sent_ids[msg_id] = time.time()
-    cutoff = time.time() - BOT_SENT_TTL
-    stale = [k for k, v in bot_sent_ids.items() if v < cutoff]
-    for k in stale:
-        del bot_sent_ids[k]
+    store.record_bot_message(business_id(), msg_id, BOT_SENT_TTL)
 
 
 def _is_kha_active(sender_id: str, recent_outbound: list[dict]) -> bool:
-    if time.time() - kha_confirmed_senders.get(sender_id, 0) < NEW_CONVERSATION_THRESHOLD:
+    if store.owner_replied_within(business_id(), sender_id, NEW_CONVERSATION_THRESHOLD):
         return True
-    return any(m["id"] not in bot_sent_ids for m in recent_outbound)
+    return any(not store.is_bot_message(business_id(), m["id"]) for m in recent_outbound)
 
 
 async def _fetch_conversation_context(sender_id: str) -> tuple[list[dict], list[dict], Optional[float]]:
@@ -443,21 +433,21 @@ async def _fetch_instagram_name(sender_id: str) -> str:
 
 async def _log_conversation(sender_id: str, result: dict) -> None:
     display_name = await _fetch_instagram_name(sender_id)
-    daily_log[sender_id] = ConversationRecord(
+    store.log_conversation(business_id(), ConversationRecord(
         sender_id=sender_id,
         display_name=display_name,
         conversation_summary=result.get("conversation_summary", ""),
         actions_taken=result.get("actions_taken", []),
         is_escalation=result.get("action") == "escalate",
         timestamp=time.time(),
-    )
+    ))
 
 
 async def _handle_instagram_dm(sender_id: str, text: str) -> None:
     session = get_session(sender_id)
 
     # Fast bail if Kha was confirmed active via a recent echo event
-    if time.time() - kha_confirmed_senders.get(sender_id, 0) < NEW_CONVERSATION_THRESHOLD:
+    if store.owner_replied_within(business_id(), sender_id, NEW_CONVERSATION_THRESHOLD):
         logger.info("Kha confirmed active for %s — skipping", sender_id)
         return
 
@@ -520,27 +510,23 @@ async def _handle_instagram_dm(sender_id: str, text: str) -> None:
     session.debounce_task = asyncio.create_task(debounce())
 
 
-async def _build_summary_chunks() -> list[str]:
+async def _build_summary_chunks(records: list[ConversationRecord]) -> list[str]:
     now_et = datetime.now(ET)
     date_str = now_et.strftime("%A, %B %-d")
 
-    restart_note = ""
-    if server_start_time > last_summary_time:
-        restart_dt = datetime.fromtimestamp(server_start_time, tz=ET)
-        restart_note = f"⚠️ Note: The assistant restarted at {restart_dt.strftime('%-I:%M %p ET')} — some conversations before then may be missing.\n\n"
     token_note = token_store.health_note()
     if token_note:
-        restart_note = f"{token_note}\n\n{restart_note}"
+        token_note = f"{token_note}\n\n"
 
-    escalations = [r for r in daily_log.values() if r.is_escalation]
-    handled = [r for r in daily_log.values() if not r.is_escalation]
+    escalations = [r for r in records if r.is_escalation]
+    handled = [r for r in records if not r.is_escalation]
 
     if not escalations and not handled:
-        return [f"📅 Daily Summary — {date_str}\n\n{restart_note}No DMs to report today."]
+        return [f"📅 Daily Summary — {date_str}\n\n{token_note}No DMs to report today."]
 
     lines: list[str] = [f"📅 Daily Summary — {date_str}\n"]
-    if restart_note:
-        lines.append(restart_note)
+    if token_note:
+        lines.append(token_note)
     if escalations:
         lines.append("⚠️ Needs Attention\n")
         for r in escalations:
@@ -566,21 +552,20 @@ async def _build_summary_chunks() -> list[str]:
 
 
 async def _send_daily_summary() -> None:
-    global last_summary_time
-
     if not DAILY_SUMMARY_RECIPIENT:
         logger.warning("DAILY_SUMMARY_RECIPIENT not set — skipping daily summary")
         return
 
-    chunks = await _build_summary_chunks()
-    escalations = [r for r in daily_log.values() if r.is_escalation]
-    handled = [r for r in daily_log.values() if not r.is_escalation]
+    records = store.conversations(business_id())
+    chunks = await _build_summary_chunks(records)
+    escalations = [r for r in records if r.is_escalation]
+    handled = [r for r in records if not r.is_escalation]
 
     for chunk in chunks:
         await _send_instagram_message(DAILY_SUMMARY_RECIPIENT, chunk)
 
-    last_summary_time = time.time()
-    daily_log.clear()
+    if records:
+        store.clear_conversations(business_id(), up_to=records[-1].timestamp)
     logger.info("Daily summary sent: %d escalations, %d handled", len(escalations), len(handled))
 
 
@@ -624,7 +609,7 @@ async def trigger_summary():
 
 @app.get("/preview-summary")
 async def preview_summary():
-    chunks = await _build_summary_chunks()
+    chunks = await _build_summary_chunks(store.conversations(business_id()))
     return {"chunks": chunks}
 
 
@@ -689,10 +674,10 @@ async def instagram_webhook(request: Request):
             if msg.get("is_echo"):
                 # Outbound message from our account — check if Kha sent it
                 msg_id = msg.get("mid") or msg.get("id", "")
-                if msg_id and msg_id not in bot_sent_ids:
+                if msg_id and not store.is_bot_message(business_id(), msg_id):
                     user_id = recipient_id
                     if user_id:
-                        kha_confirmed_senders[user_id] = time.time()
+                        store.mark_owner_reply(business_id(), user_id)
                         logger.info("Kha reply detected via echo for user %s", user_id)
                 continue
 
