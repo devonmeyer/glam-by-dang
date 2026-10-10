@@ -625,20 +625,36 @@ async def webhook_verify(
     raise HTTPException(status_code=403, detail="Verification failed")
 
 
+def _verify_webhook_signature(body_bytes: bytes, sig_header: str) -> bool:
+    """Check Meta's X-Hub-Signature-256 header against the raw request body.
+
+    Fails closed: a missing secret or missing/mismatched header is rejected.
+    With Instagram Login, Meta signs with the Instagram app secret, not the
+    Facebook app secret, so META_APP_SECRET must hold the Instagram one.
+    """
+    if not META_APP_SECRET:
+        logger.error("META_APP_SECRET is not set; rejecting all webhook POSTs")
+        return False
+    if not sig_header:
+        logger.warning("Webhook POST rejected: missing X-Hub-Signature-256")
+        return False
+    expected = "sha256=" + hmac.new(
+        META_APP_SECRET.encode(), body_bytes, hashlib.sha256
+    ).hexdigest()
+    if not hmac.compare_digest(sig_header, expected):
+        logger.warning("Webhook POST rejected: signature mismatch")
+        return False
+    return True
+
+
 @app.post("/webhook")
 async def instagram_webhook(request: Request):
     global own_account_id
 
     body_bytes = await request.body()
 
-    # TODO: re-enable HMAC check once META_APP_SECRET is confirmed correct in Railway
-    # if META_APP_SECRET:
-    #     sig_header = request.headers.get("X-Hub-Signature-256", "")
-    #     expected = "sha256=" + hmac.new(
-    #         META_APP_SECRET.encode(), body_bytes, hashlib.sha256
-    #     ).hexdigest()
-    #     if sig_header and not hmac.compare_digest(sig_header, expected):
-    #         raise HTTPException(status_code=403, detail="Invalid signature")
+    if not _verify_webhook_signature(body_bytes, request.headers.get("X-Hub-Signature-256", "")):
+        raise HTTPException(status_code=403, detail="Invalid signature")
 
     payload = json.loads(body_bytes)
 
