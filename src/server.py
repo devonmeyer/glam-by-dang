@@ -30,6 +30,7 @@ import business as business_config
 from business import (DEFAULT_BUSINESS_SLUG, SLUG_RE, Business, build_business, business_files,
                       business_slugs, business_source, default_business, load_business, starter_files)
 from email_sender import email_configured, send_email
+import email_templates
 from store import ConversationRecord, Store
 
 logging.basicConfig(
@@ -626,6 +627,20 @@ def _summary_lines(business: Business, records: list[ConversationRecord]) -> lis
     return lines
 
 
+def _summary_html(business: Business, records: list[ConversationRecord]) -> str:
+    """The branded email version of _summary_lines."""
+    tokens = _business_tokens(business)
+    rows = lambda rs, default: [(r.display_name, r.conversation_summary,
+                                 ", ".join(r.actions_taken) if r.actions_taken else default) for r in rs]
+    return email_templates.summary(
+        business.assistant_name, business.owner_name, business.name,
+        datetime.now(business.tz).strftime("%A, %B %-d"),
+        tokens.health_note() if tokens else "",
+        rows([r for r in records if r.is_escalation], "Escalated"),
+        rows([r for r in records if not r.is_escalation], "Handled"),
+    )
+
+
 def _dm_chunks(lines: list[str]) -> list[str]:
     """Split summary lines into pieces short enough for one Instagram DM each."""
     chunks: list[str] = []
@@ -651,7 +666,8 @@ async def _send_daily_summary(slug: Optional[str] = None) -> None:
     if email_configured() and business.summary_email:
         subject = f"{business.assistant_name}'s daily summary for {business.name} — " \
                   f"{datetime.now(business.tz).strftime('%A, %B %-d')}"
-        sent = await send_email(business.summary_email, subject, "".join(lines).rstrip())
+        sent = await send_email(business.summary_email, subject, "".join(lines).rstrip(),
+                                html=_summary_html(business, records))
     elif business.slug == default_business().slug and DAILY_SUMMARY_RECIPIENT:
         for chunk in _dm_chunks(lines):
             await _send_instagram_message(default_account(), DAILY_SUMMARY_RECIPIENT, chunk)
@@ -864,13 +880,23 @@ def _hash_invite(invite: str) -> str:
     return hashlib.sha256(invite.encode()).hexdigest()
 
 
+BRAND_HEAD = """<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="/static/brand/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/brand/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,500&family=Figtree:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="/static/brand/brand.css">"""
+
+
 def _page(title: str, body_html: str, status: int = 200) -> HTMLResponse:
     return HTMLResponse(status_code=status, content=f"""<!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<html lang="en"><head>{BRAND_HEAD}
 <title>{escape(title)}</title>
-<style>body{{font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem;line-height:1.5;color:#222}}
-a.button{{display:inline-block;background:#222;color:#fff;padding:.75rem 1.25rem;border-radius:.5rem;text-decoration:none}}</style>
-</head><body><h1>{escape(title)}</h1>{body_html}</body></html>""")
+</head><body class="mia-page"><main class="mia-shell">
+<span class="mia-lockup"><img src="/static/brand/mark.svg" alt=""><span class="mia-wordmark">mia</span></span>
+<div class="mia-card"><h1>{escape(title)}</h1>{body_html}</div>
+<p class="mia-footer"><a href="/privacy">Privacy policy</a></p>
+</main></body></html>""")
 
 
 class SlugRequest(BaseModel):
@@ -923,7 +949,9 @@ async def connect_page(invite: str = ""):
         f"<p>{escape(business.assistant_name)} will answer Instagram DMs for "
         f"{escape(business.name)} and hand anything sensitive to {escape(business.owner_name)}.</p>"
         f"<p>Log in with the business's Instagram account and allow message access.</p>"
-        f'<p><a class="button" href="{escape(url)}">Connect Instagram</a></p>',
+        f'<a class="mia-button" href="{escape(url)}">Connect Instagram</a>'
+        f'<p class="mia-muted">{escape(business.assistant_name)} only reads and replies to direct messages. '
+        f'Reply to anyone yourself and it steps back from that conversation.</p>',
     )
 
 
@@ -1188,7 +1216,8 @@ async def admin_invite(slug: str, req: InviteEmail, request: Request):
                 f"{invite['url']}\n\n"
                 f"Open it, log in with your business Instagram account, and tap Allow. "
                 f"The link works once and expires in 7 days.\n")
-        invite["emailed"] = await send_email(email, f"Connect your Instagram to {business.assistant_name}", text)
+        html = email_templates.invite(business.owner_name, business.name, business.assistant_name, invite["url"])
+        invite["emailed"] = await send_email(email, f"Connect your Instagram to {business.assistant_name}", text, html=html)
     return invite
 
 

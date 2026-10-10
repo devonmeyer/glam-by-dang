@@ -1,0 +1,46 @@
+/* Mia brand ("Pigment"): Bodoni Moda + Figtree, a brow-arch mark, colors from pigment swatches.
+   Pages load this plus the Google Fonts link below:
+   https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,500&family=Figtree:wght@400;500;600;700&display=swap */
+:root {
+  --mia-blush: #F7EFEC;       /* page background */
+  --mia-nude: #EAD8D1;        /* fills, cards */
+  --mia-rose: #C9A39A;        /* lines, quiet accents */
+  --mia-berry: #8E3550;       /* buttons, links, the brow arch */
+  --mia-cocoa: #3A2724;       /* text, dark ground, the dot */
+  --mia-tint: #F3E3DE;        /* soft fill */
+  --mia-line: #E6D3CC;        /* borders */
+  --mia-soft: #7A625D;        /* secondary text */
+  --mia-berry-light: #E7B3C0; /* arch on dark ground */
+  --mia-berry-tint: #F6DCE3;  /* "needs you" highlights */
+  --mia-display: "Bodoni Moda", "Didot", "Bodoni 72", Georgia, serif;
+  --mia-body: "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+/* Simple branded pages: connect flow, confirmations, privacy */
+body.mia-page {
+  margin: 0;
+  background: var(--mia-blush);
+  color: var(--mia-cocoa);
+  font: 16px/1.6 var(--mia-body);
+  padding: 48px 16px 64px;
+}
+.mia-page .mia-shell { max-width: 30rem; margin: 0 auto; display: grid; gap: 20px; }
+.mia-page .mia-shell.wide { max-width: 44rem; }
+.mia-lockup { display: inline-flex; align-items: center; gap: 8px; color: var(--mia-cocoa); text-decoration: none; }
+.mia-lockup img { width: 36px; height: 36px; }
+.mia-wordmark { font-family: var(--mia-display); font-weight: 500; font-size: 30px; line-height: 1; letter-spacing: -.01em; }
+.mia-card { background: #fff; border: 1px solid var(--mia-line); border-radius: 12px; padding: 28px; display: grid; gap: 14px; }
+.mia-card h1, .mia-card h2 { font-family: var(--mia-display); font-weight: 500; letter-spacing: -.01em; margin: 0; text-wrap: balance; }
+.mia-card h1 { font-size: 30px; line-height: 1.15; }
+.mia-card h2 { font-size: 21px; line-height: 1.25; }
+.mia-card p, .mia-card ul { margin: 0; }
+.mia-muted { color: var(--mia-soft); font-size: 14px; }
+.mia-page a { color: var(--mia-berry); text-underline-offset: 2px; }
+.mia-button {
+  display: inline-block; justify-self: start;
+  background: var(--mia-berry); color: #fff !important; text-decoration: none;
+  font: 600 16px/1 var(--mia-body); padding: 14px 22px; border-radius: 999px;
+}
+.mia-button:hover { background: #7A2C44; }
+.mia-button:focus-visible { outline: 2px solid var(--mia-cocoa); outline-offset: 3px; }
+.mia-footer { color: var(--mia-soft); font-size: 13px; text-align: center; }
