@@ -7,6 +7,7 @@ import hmac
 import hashlib
 import json
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -19,7 +20,7 @@ from pathlib import Path
 import httpx
 
 from instagram_token import TokenStore
-from business import default_business
+from business import Business, default_business, load_business
 from store import ConversationRecord, Store
 
 logging.basicConfig(
@@ -54,15 +55,11 @@ TOKEN_REFRESH_RETRY_INTERVAL = 6 * 60 * 60    # back off 6h between failed refre
 token_store = TokenStore(TOKEN_FILE, META_PAGE_ACCESS_TOKEN)
 
 
-def _get_token() -> str:
-    return token_store.token
-
-
-def _note_auth_failure(resp: httpx.Response, action: str) -> None:
+def _note_auth_failure(resp: httpx.Response, action: str, tokens: TokenStore = token_store) -> None:
     if resp.status_code == 401:
         msg = f"Instagram rejected the access token (401) during {action}"
         logger.error("%s — set a fresh META_PAGE_ACCESS_TOKEN in Railway", msg)
-        token_store.record_failure(msg)
+        tokens.record_failure(msg)
 
 
 async def _check_token_health() -> None:
@@ -114,7 +111,6 @@ async def _refresh_instagram_token() -> bool:
     return True
 
 BOT_SENT_TTL = 24 * 60 * 60
-own_account_id: str = ""                   # set from first incoming webhook
 
 from agent import process_message
 
@@ -124,11 +120,52 @@ _business_id: Optional[int] = None
 
 
 def business_id() -> int:
-    """Kha's business is the only one until webhooks are routed by account."""
+    """Database id of the default business (Kha's), which the simulator and summary use."""
     global _business_id
     if _business_id is None:
         _business_id = store.ensure_business(default_business().slug, default_business().name)
     return _business_id
+
+
+@dataclass
+class Account:
+    """An Instagram account Mia answers DMs on, and the business it belongs to."""
+    account_id: str
+    business: Business
+    business_id: int
+    tokens: TokenStore
+
+    @property
+    def token(self) -> str:
+        return self.tokens.token.strip()
+
+
+def _token_store_for(slug: str) -> Optional[TokenStore]:
+    # Only Kha's token exists until businesses connect through Instagram login.
+    return token_store if slug == default_business().slug else None
+
+
+def default_account() -> Account:
+    accounts = store.accounts_for_business(business_id())
+    return Account(accounts[0] if accounts else "", default_business(), business_id(), token_store)
+
+
+def _account_for(account_id: str) -> Optional[Account]:
+    """The account a webhook entry belongs to, or None if Mia doesn't serve it."""
+    found = store.account_business(account_id)
+    if found is None:
+        if store.business_count() > 1:
+            return None
+        # Only Kha's business exists: learn her account id from her first webhook.
+        store.register_account(account_id, business_id())
+        logger.info("Instagram account %s registered to %s", account_id, default_business().slug)
+        found = (business_id(), default_business().slug)
+    biz_id, slug = found
+    tokens = _token_store_for(slug)
+    if tokens is None:
+        logger.warning("No Instagram token for business %s — ignoring account %s", slug, account_id)
+        return None
+    return Account(account_id, load_business(slug), biz_id, tokens)
 
 
 @asynccontextmanager
@@ -269,7 +306,7 @@ async def chat(req: MessageRequest):
             session.history.append({"role": "assistant", "content": " ".join(result["messages"])})
             session.last_reply_time = fire_time
 
-        asyncio.create_task(_log_conversation(req.session_id, result))
+        asyncio.create_task(_log_conversation(default_account(), req.session_id, result))
 
         if not future.done():
             future.set_result(result)
@@ -314,12 +351,11 @@ async def reset(req: ResetRequest):
     return {"status": "ok"}
 
 
-async def _send_instagram_message(recipient_id: str, text: str) -> None:
-    token = _get_token()
+async def _send_instagram_message(account: Account, recipient_id: str, text: str) -> None:
+    token = account.token
     if not token:
-        logger.warning("META_PAGE_ACCESS_TOKEN not set — skipping Instagram send")
+        logger.warning("No Instagram token for %s — skipping Instagram send", account.business.slug)
         return
-    token = token.strip()
     async with httpx.AsyncClient() as http:
         resp = await http.post(
             f"{GRAPH_API_BASE}/me/messages",
@@ -328,38 +364,34 @@ async def _send_instagram_message(recipient_id: str, text: str) -> None:
         )
         if resp.status_code != 200:
             logger.error("Instagram send failed %s: %s", resp.status_code, resp.text)
-            _note_auth_failure(resp, "a message send")
+            _note_auth_failure(resp, "a message send", account.tokens)
         else:
             data = resp.json()
             msg_id = data.get("message_id") or data.get("id")
             if msg_id:
-                _record_bot_message(msg_id)
+                store.record_bot_message(account.business_id, msg_id, BOT_SENT_TTL)
             logger.info("Instagram message sent to %s (mid=%s)", recipient_id, msg_id)
 
 
-def _record_bot_message(msg_id: str) -> None:
-    store.record_bot_message(business_id(), msg_id, BOT_SENT_TTL)
-
-
-def _is_kha_active(sender_id: str, recent_outbound: list[dict]) -> bool:
-    if store.owner_replied_within(business_id(), sender_id, NEW_CONVERSATION_THRESHOLD):
+def _is_owner_active(account: Account, sender_id: str, recent_outbound: list[dict]) -> bool:
+    if store.owner_replied_within(account.business_id, sender_id, NEW_CONVERSATION_THRESHOLD):
         return True
-    return any(not store.is_bot_message(business_id(), m["id"]) for m in recent_outbound)
+    return any(not store.is_bot_message(account.business_id, m["id"]) for m in recent_outbound)
 
 
-async def _fetch_conversation_context(sender_id: str) -> tuple[list[dict], list[dict], Optional[float]]:
+async def _fetch_conversation_context(account: Account, sender_id: str) -> tuple[list[dict], list[dict], Optional[float]]:
     """Returns (history, recent_outbound, last_assistant_ts).
     history is oldest-first [{role, content}].
     recent_outbound is [{id, ts}] for outbound messages within the last hour.
     last_assistant_ts is the timestamp of the most recent assistant message, or None.
     """
-    if not _get_token() or not own_account_id:
+    if not account.token or not account.account_id:
         return [], [], None
     try:
         async with httpx.AsyncClient() as http:
             resp = await http.get(
                 f"{GRAPH_API_BASE}/me/conversations",
-                headers={"Authorization": f"Bearer {_get_token().strip()}"},
+                headers={"Authorization": f"Bearer {account.token}"},
                 params={
                     "user_id": sender_id,
                     "fields": "messages.limit(25){id,message,from,created_time}",
@@ -368,7 +400,7 @@ async def _fetch_conversation_context(sender_id: str) -> tuple[list[dict], list[
             )
             if resp.status_code != 200:
                 logger.warning("Conversation fetch failed %s: %s", resp.status_code, resp.text)
-                _note_auth_failure(resp, "a conversation fetch")
+                _note_auth_failure(resp, "a conversation fetch", account.tokens)
                 return [], [], None
 
             convos = resp.json().get("data", [])
@@ -396,7 +428,7 @@ async def _fetch_conversation_context(sender_id: str) -> tuple[list[dict], list[
                     continue
                 if from_id == sender_id:
                     history.append({"role": "user", "content": text})
-                elif from_id == own_account_id:
+                elif from_id == account.account_id:
                     history.append({"role": "assistant", "content": text})
                     last_assistant_ts = ts
                     if now - ts < NEW_CONVERSATION_THRESHOLD:
@@ -409,16 +441,16 @@ async def _fetch_conversation_context(sender_id: str) -> tuple[list[dict], list[
         return [], [], None
 
 
-async def _fetch_instagram_name(sender_id: str) -> str:
+async def _fetch_instagram_name(account: Account, sender_id: str) -> str:
     if not sender_id.isdigit():
         return "Simulator"
-    if not _get_token():
+    if not account.token:
         return sender_id
     try:
         async with httpx.AsyncClient() as http:
             resp = await http.get(
                 f"{GRAPH_API_BASE}/{sender_id}",
-                headers={"Authorization": f"Bearer {_get_token().strip()}"},
+                headers={"Authorization": f"Bearer {account.token}"},
                 params={"fields": "name,username"},
             )
             if resp.status_code == 200:
@@ -432,9 +464,9 @@ async def _fetch_instagram_name(sender_id: str) -> str:
     return sender_id
 
 
-async def _log_conversation(sender_id: str, result: dict) -> None:
-    display_name = await _fetch_instagram_name(sender_id)
-    store.log_conversation(business_id(), ConversationRecord(
+async def _log_conversation(account: Account, sender_id: str, result: dict) -> None:
+    display_name = await _fetch_instagram_name(account, sender_id)
+    store.log_conversation(account.business_id, ConversationRecord(
         sender_id=sender_id,
         display_name=display_name,
         conversation_summary=result.get("conversation_summary", ""),
@@ -444,12 +476,12 @@ async def _log_conversation(sender_id: str, result: dict) -> None:
     ))
 
 
-async def _handle_instagram_dm(sender_id: str, text: str) -> None:
-    session = get_session(sender_id)
+async def _handle_instagram_dm(account: Account, sender_id: str, text: str) -> None:
+    session = get_session(f"{account.account_id}:{sender_id}")
 
-    # Fast bail if Kha was confirmed active via a recent echo event
-    if store.owner_replied_within(business_id(), sender_id, NEW_CONVERSATION_THRESHOLD):
-        logger.info("Kha confirmed active for %s — skipping", sender_id)
+    # Fast bail if the owner was confirmed active via a recent echo event
+    if store.owner_replied_within(account.business_id, sender_id, NEW_CONVERSATION_THRESHOLD):
+        logger.info("Owner confirmed active for %s — skipping", sender_id)
         return
 
     session.pending_messages.append(text)
@@ -468,11 +500,11 @@ async def _handle_instagram_dm(sender_id: str, text: str) -> None:
         session.pending_messages.clear()
 
         # Fetch conversation context from Instagram API
-        history, recent_outbound, last_assistant_ts = await _fetch_conversation_context(sender_id)
+        history, recent_outbound, last_assistant_ts = await _fetch_conversation_context(account, sender_id)
 
-        # Pre-process Kha check
-        if _is_kha_active(sender_id, recent_outbound):
-            logger.info("Kha active for %s — skipping", sender_id)
+        # Pre-process owner check
+        if _is_owner_active(account, sender_id, recent_outbound):
+            logger.info("Owner active for %s — skipping", sender_id)
             return
 
         is_new_conversation = (
@@ -481,32 +513,32 @@ async def _handle_instagram_dm(sender_id: str, text: str) -> None:
         )
 
         try:
-            result = process_message(combined, history, is_new_conversation)
+            result = process_message(combined, history, is_new_conversation, account.business)
         except Exception as e:
             logger.error("process_message failed: %s", e, exc_info=True)
             result = {
                 "action": "reply",
                 "category": "escalate",
-                "messages": [default_business().escalation_reply],
+                "messages": [account.business.escalation_reply],
                 "escalation": None,
                 "conversation_summary": "",
                 "actions_taken": [],
             }
 
         if not result.get("messages"):
-            await _log_conversation(sender_id, result)
+            await _log_conversation(account, sender_id, result)
             return
 
-        # Pre-send Kha check — did she reply while Claude was thinking?
-        _, recent_outbound_now, _ = await _fetch_conversation_context(sender_id)
-        if _is_kha_active(sender_id, recent_outbound_now):
-            logger.info("Kha replied while processing %s — not sending", sender_id)
+        # Pre-send owner check — did they reply while Claude was thinking?
+        _, recent_outbound_now, _ = await _fetch_conversation_context(account, sender_id)
+        if _is_owner_active(account, sender_id, recent_outbound_now):
+            logger.info("Owner replied while processing %s — not sending", sender_id)
             return
 
         for msg_text in result["messages"]:
-            await _send_instagram_message(sender_id, msg_text)
+            await _send_instagram_message(account, sender_id, msg_text)
 
-        await _log_conversation(sender_id, result)
+        await _log_conversation(account, sender_id, result)
 
     session.debounce_task = asyncio.create_task(debounce())
 
@@ -563,7 +595,7 @@ async def _send_daily_summary() -> None:
     handled = [r for r in records if not r.is_escalation]
 
     for chunk in chunks:
-        await _send_instagram_message(DAILY_SUMMARY_RECIPIENT, chunk)
+        await _send_instagram_message(default_account(), DAILY_SUMMARY_RECIPIENT, chunk)
 
     if records:
         store.clear_conversations(business_id(), up_to=records[-1].timestamp)
@@ -650,8 +682,6 @@ def _verify_webhook_signature(body_bytes: bytes, sig_header: str) -> bool:
 
 @app.post("/webhook")
 async def instagram_webhook(request: Request):
-    global own_account_id
-
     body_bytes = await request.body()
 
     if not _verify_webhook_signature(body_bytes, request.headers.get("X-Hub-Signature-256", "")):
@@ -663,6 +693,12 @@ async def instagram_webhook(request: Request):
         return {"status": "ok"}
 
     for entry in payload.get("entry", []):
+        # entry.id is the business's Instagram account the events happened on
+        account = _account_for(str(entry.get("id", ""))) if entry.get("id") else None
+        if account is None:
+            logger.warning("Webhook entry for unknown Instagram account %s — ignoring", entry.get("id"))
+            continue
+
         events = entry.get("messaging", [])
         if not events:
             events = [c.get("value", {}) for c in entry.get("changes", []) if c.get("field") == "messages"]
@@ -673,19 +709,14 @@ async def instagram_webhook(request: Request):
             msg = event.get("message", {})
 
             if msg.get("is_echo"):
-                # Outbound message from our account — check if Kha sent it
+                # Outbound message from the business account — check if the owner sent it
                 msg_id = msg.get("mid") or msg.get("id", "")
-                if msg_id and not store.is_bot_message(business_id(), msg_id):
+                if msg_id and not store.is_bot_message(account.business_id, msg_id):
                     user_id = recipient_id
                     if user_id:
-                        store.mark_owner_reply(business_id(), user_id)
-                        logger.info("Kha reply detected via echo for user %s", user_id)
+                        store.mark_owner_reply(account.business_id, user_id)
+                        logger.info("Owner reply detected via echo for user %s", user_id)
                 continue
-
-            # Learn our own account ID from the recipient field of incoming messages
-            if recipient_id and not own_account_id:
-                own_account_id = recipient_id
-                logger.info("Own account ID set to %s", own_account_id)
 
             if not sender_id or "text" not in msg:
                 continue
@@ -693,7 +724,7 @@ async def instagram_webhook(request: Request):
             if not text or len(text) > MAX_MESSAGE_LENGTH:
                 continue
             logger.info("Instagram DM from %s: %d chars", sender_id, len(text))
-            asyncio.create_task(_handle_instagram_dm(sender_id, text))
+            asyncio.create_task(_handle_instagram_dm(account, sender_id, text))
 
     return {"status": "ok"}
 

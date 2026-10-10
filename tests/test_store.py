@@ -99,7 +99,7 @@ def test_summary_reads_from_store_and_clears_what_it_sent():
     server.DAILY_SUMMARY_RECIPIENT = "owner"
     sent = []
 
-    async def fake_send(recipient, text):
+    async def fake_send(account, recipient, text):
         sent.append((recipient, text))
 
     server._send_instagram_message = fake_send

@@ -23,6 +23,12 @@ CREATE TABLE IF NOT EXISTS businesses (
     name TEXT NOT NULL,
     created_at REAL NOT NULL
 );
+-- Which business each connected Instagram account belongs to (the id webhooks carry).
+CREATE TABLE IF NOT EXISTS instagram_accounts (
+    account_id TEXT PRIMARY KEY,
+    business_id INTEGER NOT NULL REFERENCES businesses(id),
+    created_at REAL NOT NULL
+);
 -- One row per customer per day's summary; replaced as the conversation goes on.
 CREATE TABLE IF NOT EXISTS conversations (
     business_id INTEGER NOT NULL REFERENCES businesses(id),
@@ -100,6 +106,34 @@ class Store:
             (slug, name, self.clock()),
         )
         return self._execute("SELECT id FROM businesses WHERE slug = ?", (slug,))[0][0]
+
+    def business_count(self) -> int:
+        return self._execute("SELECT COUNT(*) FROM businesses")[0][0]
+
+    # Instagram accounts
+
+    def register_account(self, account_id: str, business_id: int) -> None:
+        self._execute(
+            "INSERT OR REPLACE INTO instagram_accounts (account_id, business_id, created_at) "
+            "VALUES (?, ?, ?)",
+            (account_id, business_id, self.clock()),
+        )
+
+    def account_business(self, account_id: str) -> Optional[tuple[int, str]]:
+        """(business id, business slug) for a connected account, or None if unknown."""
+        rows = self._execute(
+            "SELECT b.id, b.slug FROM instagram_accounts a JOIN businesses b ON b.id = a.business_id "
+            "WHERE a.account_id = ?",
+            (account_id,),
+        )
+        return (rows[0][0], rows[0][1]) if rows else None
+
+    def accounts_for_business(self, business_id: int) -> list[str]:
+        rows = self._execute(
+            "SELECT account_id FROM instagram_accounts WHERE business_id = ? ORDER BY created_at",
+            (business_id,),
+        )
+        return [r[0] for r in rows]
 
     # Daily summary log
 
