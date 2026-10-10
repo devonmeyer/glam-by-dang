@@ -156,8 +156,8 @@ def test_invite_link_and_email():
 
     emails = []
 
-    async def fake_email(to, subject, text):
-        emails.append((to, text))
+    async def fake_email(to, subject, text, html=None):
+        emails.append((to, text, html))
         return True
     real = server.send_email
     server.send_email = fake_email
@@ -167,6 +167,7 @@ def test_invite_link_and_email():
         server.send_email = real
     assert r.json()["emailed"] is True
     assert emails[0][0] == "kha@example.com" and r.json()["url"] in emails[0][1]
+    assert r.json()["url"].replace("&", "&amp;") in emails[0][2] and "Connect Instagram" in emails[0][2]
     # The emailed link works
     invite = r.json()["url"].split("invite=")[1]
     assert c.get(f"/connect?invite={invite}").status_code == 200

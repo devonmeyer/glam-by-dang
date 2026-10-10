@@ -23,11 +23,13 @@ from store import ConversationRecord, Store
 
 emails: list[tuple[str, str, str]] = []
 dms: list[tuple[str, str]] = []
+email_html: list = []
 email_ok = True
 
 
-async def _fake_email(to, subject, text):
+async def _fake_email(to, subject, text, html=None):
     emails.append((to, subject, text))
+    email_html.append(html)
     return email_ok
 
 
@@ -57,6 +59,7 @@ def _setup(tmp: Path, email_on: bool, kha_email: str = "", dm_recipient: str = "
     server._send_instagram_message = _fake_dm
     server.DAILY_SUMMARY_RECIPIENT = dm_recipient
     emails.clear()
+    email_html.clear()
     dms.clear()
     email_ok = True
 
@@ -90,6 +93,8 @@ def test_each_owner_gets_only_their_own_conversations_by_email():
         assert "Lash Lab" in subject
         assert "@bo — Wants a lash lift" in text and "Needs Attention" in text
         assert "@ana" not in text
+        [html] = email_html
+        assert "Good morning, Rosa" in html and "Wants a lash lift" in html and "@ana" not in html
         assert server.store.conversations(rosa) == []
         assert len(server.store.conversations(kha)) == 1
         assert dms == []

@@ -5,16 +5,23 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 <title>Mia Admin</title>
+<link rel="icon" href="/static/brand/icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,500&family=Figtree:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="/static/brand/brand.css">
 <style>
   :root {
-    --bg: #f7f5f8; --panel: #fff; --text: #1f1a22; --muted: #6f6675; --line: #e6e0e9;
-    --accent: #6b3f7d; --accent-soft: #f1e9f4; --ok: #1d7a46; --warn: #a3620a; --bad: #b42318;
+    --bg: var(--mia-blush); --panel: #fff; --text: var(--mia-cocoa); --muted: var(--mia-soft); --line: var(--mia-line);
+    --accent: var(--mia-berry); --accent-soft: var(--mia-tint); --ok: #1d7a46; --warn: #a3620a; --bad: #b42318;
     --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 var(--mia-body); }
   header { background: var(--panel); border-bottom: 1px solid var(--line); padding: 12px 16px; display: flex; align-items: center; gap: 16px; position: sticky; top: 0; z-index: 5; }
-  header h1 { font-size: 17px; margin: 0; }
+  header h1 { margin: 0; display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  header h1 img { width: 28px; height: 28px; }
+  header h1 .mia-wordmark { font-size: 24px; letter-spacing: -.01em; text-transform: none; color: var(--text); margin-right: 4px; }
+  h2 { font-family: var(--mia-display); font-weight: 500; letter-spacing: -.01em; }
   nav { display: flex; gap: 4px; flex: 1; }
   nav button, .tabs button { white-space: nowrap; background: none; border: 0; padding: 6px 10px; border-radius: 6px; color: var(--muted); font: inherit; cursor: pointer; }
   nav button.on, .tabs button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
@@ -24,7 +31,7 @@
   .grow { flex: 1; }
   .muted { color: var(--muted); }
   .small { font-size: 13px; }
-  h2 { font-size: 20px; margin: 0 0 4px; }
+  h2 { font-size: 22px; margin: 0 0 4px; }
   h3 { font-size: 15px; margin: 0 0 10px; }
   button.btn { background: var(--accent); color: #fff; border: 0; border-radius: 7px; padding: 8px 14px; font: inherit; font-weight: 600; cursor: pointer; }
   button.btn.secondary { background: var(--accent-soft); color: var(--accent); }
@@ -44,13 +51,13 @@
   .tabs { display: flex; gap: 4px; margin: 14px 0; border-bottom: 1px solid var(--line); padding-bottom: 8px; overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; }
   td, th { padding: 5px 6px; border-bottom: 1px solid var(--line); text-align: left; font-size: 14px; vertical-align: middle; }
-  .logs { font-family: var(--mono); font-size: 12.5px; background: #17131a; color: #e8e2ea; border-radius: 10px; padding: 10px 12px; height: 65vh; overflow: auto; }
+  .logs { font-family: var(--mono); font-size: 12.5px; background: var(--mia-cocoa); color: #F3E3DE; border-radius: 10px; padding: 10px 12px; height: 65vh; overflow: auto; }
   .logs div { white-space: pre-wrap; word-break: break-word; padding: 1px 0; }
   .logs .WARNING { color: #f6c26b; } .logs .ERROR, .logs .CRITICAL { color: #ff8a80; }
-  .logs time { color: #8d8394; margin-right: 8px; }
-  #toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: #1f1a22; color: #fff; padding: 10px 16px; border-radius: 8px; display: none; max-width: 90vw; z-index: 20; }
+  .logs time { color: #B79A93; margin-right: 8px; }
+  #toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--mia-cocoa); color: #fff; padding: 10px 16px; border-radius: 8px; display: none; max-width: 90vw; z-index: 20; }
   #toast.bad { background: var(--bad); }
-  .modal { position: fixed; inset: 0; background: rgba(20,10,25,.4); display: none; align-items: center; justify-content: center; padding: 16px; z-index: 10; }
+  .modal { position: fixed; inset: 0; background: rgba(58,39,36,.4); display: none; align-items: center; justify-content: center; padding: 16px; z-index: 10; }
   .modal .card { width: 100%; max-width: 440px; }
   .link-box { display: flex; gap: 8px; margin-top: 10px; }
   .link-box input { font-family: var(--mono); font-size: 13px; }
@@ -81,7 +88,8 @@
 <div id="login" class="hidden">
   <main style="max-width:380px;padding-top:12vh">
     <div class="card">
-      <h2>Mia Admin</h2>
+      <div class="mia-lockup" style="margin-bottom:10px"><img src="/static/brand/mark.svg" alt=""><span class="mia-wordmark">mia</span></div>
+      <h2>Admin</h2>
       <p class="muted small">Log in with the ADMIN_SECRET set in Railway.</p>
       <form id="login-form">
         <input id="secret" type="password" autocomplete="current-password" placeholder="Admin secret" required>
@@ -93,7 +101,7 @@
 
 <div id="app" class="hidden">
   <header>
-    <h1>Mia Admin</h1>
+    <h1><img src="/static/brand/mark.svg" alt=""><span class="mia-wordmark">mia</span>Admin</h1>
     <nav>
       <button data-view="businesses" class="on">Businesses</button>
       <button data-view="assistant">Assistant</button>
