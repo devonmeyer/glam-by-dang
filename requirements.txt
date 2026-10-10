@@ -4,3 +4,4 @@ anthropic
 python-dotenv
 httpx
 cryptography
+python-multipart
