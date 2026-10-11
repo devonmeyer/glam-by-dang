@@ -126,8 +126,16 @@ class Store:
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.execute("PRAGMA foreign_keys=ON")
             self._conn.executescript(SCHEMA)
+            self._migrate()
             logger.info("State database opened at %s", path)
         return self._conn
+
+    def _migrate(self) -> None:
+        """Add columns that databases created before them don't have yet."""
+        invite_cols = {row[1] for row in self._conn.execute("PRAGMA table_info(invites)")}
+        if "reusable" not in invite_cols:
+            # A reusable invite (for Meta's app reviewers) keeps working after it's used
+            self._conn.execute("ALTER TABLE invites ADD COLUMN reusable INTEGER NOT NULL DEFAULT 0")
 
     def _execute(self, sql: str, params: tuple = ()) -> list[sqlite3.Row]:
         with self._lock:
@@ -261,10 +269,10 @@ class Store:
 
     # Connect invites
 
-    def create_invite(self, token_hash: str, business_id: int, expires_at: float) -> None:
+    def create_invite(self, token_hash: str, business_id: int, expires_at: float, reusable: bool = False) -> None:
         self._execute(
-            "INSERT INTO invites (token_hash, business_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
-            (token_hash, business_id, self.clock(), expires_at),
+            "INSERT INTO invites (token_hash, business_id, created_at, expires_at, reusable) VALUES (?, ?, ?, ?, ?)",
+            (token_hash, business_id, self.clock(), expires_at, int(reusable)),
         )
 
     def open_invite(self, token_hash: str) -> Optional[tuple[int, str]]:
@@ -278,7 +286,8 @@ class Store:
 
     def use_invite(self, token_hash: str, account_id: str) -> None:
         self._execute(
-            "UPDATE invites SET used_at = ?, account_id = ? WHERE token_hash = ?",
+            "UPDATE invites SET used_at = CASE WHEN reusable THEN NULL ELSE ? END, account_id = ? "
+            "WHERE token_hash = ?",
             (self.clock(), account_id, token_hash),
         )
 

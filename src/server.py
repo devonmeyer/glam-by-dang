@@ -876,6 +876,7 @@ async def instagram_webhook(request: Request):
 # --- Connecting a business's Instagram (Business Login for Instagram) ---
 
 INVITE_TTL = 7 * 24 * 60 * 60
+REVIEWER_INVITE_TTL = 30 * 24 * 60 * 60   # Meta's app review can take weeks
 
 
 def _hash_invite(invite: str) -> str:
@@ -912,11 +913,13 @@ async def create_invite(req: SlugRequest, request: Request):
     return _new_invite(_admin_business(req.slug))
 
 
-def _new_invite(business: Business) -> dict:
+def _new_invite(business: Business, reviewer: bool = False) -> dict:
+    """A one-time link that expires in 7 days, or for Meta's reviewers, a reusable one for 30."""
     invite = secrets.token_urlsafe(24)
-    expires_at = time.time() + INVITE_TTL
-    store.create_invite(_hash_invite(invite), store.ensure_business(business.slug, business.name), expires_at)
-    logger.info("Connect invite created for %s", business.slug)
+    expires_at = time.time() + (REVIEWER_INVITE_TTL if reviewer else INVITE_TTL)
+    store.create_invite(_hash_invite(invite), store.ensure_business(business.slug, business.name), expires_at,
+                        reusable=reviewer)
+    logger.info("Connect %s created for %s", "reviewer link" if reviewer else "invite", business.slug)
     return {"url": f"{instagram_connect.base_url()}/connect?invite={invite}",
             "expires_at": datetime.fromtimestamp(expires_at, tz=ET).isoformat()}
 
@@ -951,7 +954,7 @@ async def connect_page(invite: str = ""):
         f"<p>{escape(business.assistant_name)} will answer Instagram DMs for "
         f"{escape(business.name)} and hand anything sensitive to {escape(business.owner_name)}.</p>"
         f"<p>Log in with the business's Instagram account and allow message access.</p>"
-        f'<a class="mia-button" href="{escape(url)}">Connect Instagram</a>'
+        f'<a class="mia-button" href="{escape(url)}">Continue with Instagram</a>'
         f'<p class="mia-muted">{escape(business.assistant_name)} only reads and replies to direct messages. '
         f'Reply to anyone yourself and it steps back from that conversation.</p>',
     )
@@ -1060,6 +1063,7 @@ class BusinessFiles(BaseModel):
 
 class InviteEmail(BaseModel):
     email: str = ""
+    reviewer: bool = False
 
 
 @app.get("/admin")
@@ -1239,7 +1243,7 @@ async def admin_invite(slug: str, req: InviteEmail, request: Request):
     business = _admin_business(slug)
     if not instagram_connect.connect_configured() or not crypto_configured():
         raise HTTPException(status_code=400, detail="Instagram login isn't configured on the server yet")
-    invite = _new_invite(business)
+    invite = _new_invite(business, reviewer=req.reviewer)
     email = req.email.strip()
     if email:
         text = (f"Hi {business.owner_name},\n\n"
@@ -1370,6 +1374,11 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 @app.get("/")
 async def root():
+    return FileResponse(os.path.join(static_dir, "home.html"))
+
+
+@app.get("/simulator")
+async def simulator():
     return FileResponse(os.path.join(static_dir, "index.html"))
 
 
