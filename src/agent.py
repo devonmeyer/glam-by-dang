@@ -9,6 +9,7 @@ from business import Business, default_business
 logger = logging.getLogger(__name__)
 client = Anthropic()
 
+MODEL = "claude-sonnet-5-5"
 MAX_HISTORY = 20
 
 
@@ -119,12 +120,18 @@ def process_message(
                 "text": "IMPORTANT: Your previous response was not valid JSON. Return ONLY a valid JSON object — no markdown, no explanation, no extra text before or after the JSON.",
             })
         response = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=1024,
+            model=MODEL,
+            # Room for adaptive thinking (on by default) plus the JSON reply
+            max_tokens=4096,
+            output_config={"effort": "low"},
             system=system,
             messages=messages,
         )
-        raw_text = response.content[0].text
+        if response.stop_reason == "refusal":
+            # Server escalates to the owner when process_message raises
+            raise RuntimeError(f"Model declined to answer: {response.stop_details}")
+        # Responses can open with thinking blocks, so read the text blocks by type
+        raw_text = "".join(b.text for b in response.content if b.type == "text")
         try:
             raw = parse_json(raw_text)
             break
