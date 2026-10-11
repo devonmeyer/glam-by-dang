@@ -171,6 +171,49 @@ def test_data_deletion_removes_token_and_history():
     assert server.store.conversations(biz_id) == []
 
 
+def test_summary_endpoints_need_the_admin_secret_and_work_per_business():
+    _reset()
+    sent = []
+
+    async def fake_send(slug=None):
+        sent.append(slug)
+    real_send = server._send_daily_summary
+    server._send_daily_summary = fake_send
+    try:
+        assert client.post("/trigger-summary").status_code == 403
+        assert client.get("/preview-summary").status_code == 403
+        admin = {"X-Admin-Secret": "admin-pw"}
+        assert client.post("/trigger-summary?slug=nope", headers=admin).status_code == 404
+        assert client.post("/trigger-summary?slug=lash-lab", headers=admin).status_code == 200
+        assert client.post("/trigger-summary", headers=admin).status_code == 200
+        assert sent == ["lash-lab", "glam-by-dang"]
+    finally:
+        server._send_daily_summary = real_send
+
+    biz_id = server.store.ensure_business("lash-lab", "Lash Lab")
+    server.store.log_conversation(biz_id, ConversationRecord("555", "Jo", "asked about lifts", timestamp=1.0))
+    r = client.get("/preview-summary?slug=lash-lab", headers=admin)
+    assert r.status_code == 200 and "asked about lifts" in "".join(r.json()["chunks"])
+    r = client.get("/preview-summary", headers=admin)
+    assert "asked about lifts" not in "".join(r.json()["chunks"])
+    assert server.store.conversations(biz_id)  # preview doesn't clear
+
+
+def test_admin_delete_data_disconnects_and_clears_history():
+    _reset()
+    server.business_id()  # Kha's business exists, as in production
+    client.get(f"/auth/instagram/callback?code=the-code&state={_invite()}")
+    biz_id, _ = server.store.account_business(FRIEND_ACCOUNT)
+    server.store.log_conversation(biz_id, ConversationRecord("555", timestamp=1.0))
+    assert client.post("/admin/delete-data", json={"slug": "lash-lab"}).status_code == 403
+    r = client.post("/admin/delete-data", json={"slug": "lash-lab"}, headers={"X-Admin-Secret": "admin-pw"})
+    assert r.status_code == 200 and r.json()["accounts_disconnected"] == 1
+    assert server.store.load_token(FRIEND_ACCOUNT) is None
+    assert server.store.account_business(FRIEND_ACCOUNT) is None
+    assert server.store.conversations(biz_id) == []
+    assert server._account_for(FRIEND_ACCOUNT) is None
+
+
 if __name__ == "__main__":
     tests = [v for k, v in list(globals().items()) if k.startswith("test_")]
     for t in tests:

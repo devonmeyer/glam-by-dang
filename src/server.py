@@ -7,12 +7,13 @@ import hmac
 import hashlib
 import json
 import secrets
+from collections import deque
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Optional
 from zoneinfo import ZoneInfo
-from fastapi import FastAPI, Form, Header, HTTPException, Query, Request
+from fastapi import FastAPI, Form, Header, HTTPException, Query, Request, Response
 from html import escape
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
@@ -20,12 +21,16 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 from pathlib import Path
 import httpx
+import anthropic
 
 import instagram_connect
+from admin_assistant import Assistant
 from connected_tokens import ConnectedTokenStore, crypto_configured
 from instagram_connect import ConnectError
 from instagram_token import TokenStore
-from business import Business, business_slugs, default_business, load_business
+import business as business_config
+from business import (DEFAULT_BUSINESS_SLUG, SLUG_RE, Business, build_business, business_files,
+                      business_slugs, business_source, default_business, load_business, starter_files)
 from email_sender import email_configured, send_email
 from store import ConversationRecord, Store
 
@@ -34,6 +39,29 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s — %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+class RecentLogs(logging.Handler):
+    """Keeps the latest log lines in memory for the admin panel (Railway keeps the full history)."""
+
+    def __init__(self, size: int = 3000):
+        super().__init__()
+        self.records: deque[dict] = deque(maxlen=size)
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            self.records.append({
+                "time": record.created,
+                "level": record.levelname,
+                "logger": record.name,
+                "message": record.getMessage(),
+            })
+        except Exception:
+            self.handleError(record)
+
+
+recent_logs = RecentLogs()
+logging.getLogger().addHandler(recent_logs)
 
 NEW_CONVERSATION_THRESHOLD = 60 * 60  # 1 hour
 DEBOUNCE_SECONDS = 5
@@ -123,6 +151,9 @@ from agent import process_message
 # Summary log, owner takeovers and Mia's sent-message ids, persisted across redeploys
 store = Store()
 _business_id: Optional[int] = None
+
+# Businesses created or edited in the admin panel are read from the database.
+business_config.use_saved_settings(lambda slug: store.saved_business(slug), lambda: store.saved_business_slugs())
 
 
 def business_id() -> int:
@@ -691,15 +722,55 @@ async def _connected_token_refresh_scheduler() -> None:
         await asyncio.sleep(60 * 60)
 
 
+ADMIN_COOKIE = "mia_admin"
+ADMIN_SESSION_TTL = 7 * 24 * 60 * 60
+
+
+def _admin_session_sig(expires: int, admin_secret: str) -> str:
+    return hmac.new(admin_secret.encode(), f"admin-session:{expires}".encode(), hashlib.sha256).hexdigest()
+
+
+def _is_admin(request: Request) -> bool:
+    """The X-Admin-Secret header (for curl) or a signed session cookie from the admin panel login."""
+    admin_secret = os.environ.get("ADMIN_SECRET", "")
+    if not admin_secret:
+        return False
+    header = request.headers.get("x-admin-secret", "")
+    if header and hmac.compare_digest(header, admin_secret):
+        return True
+    cookie = request.cookies.get(ADMIN_COOKIE, "")
+    expires, _, sig = cookie.partition(".")
+    if not expires.isdigit() or int(expires) < time.time():
+        return False
+    return hmac.compare_digest(sig, _admin_session_sig(int(expires), admin_secret))
+
+
+def _require_admin(request: Request) -> None:
+    if not _is_admin(request):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+
+def _admin_business(slug: str) -> Business:
+    if slug not in business_slugs():
+        raise HTTPException(status_code=404, detail=f"No business {slug!r}")
+    return load_business(slug)
+
+
 @app.post("/trigger-summary")
-async def trigger_summary():
-    await _send_daily_summary()
+async def trigger_summary(request: Request, slug: str = DEFAULT_BUSINESS_SLUG):
+    """Send a business's daily summary now (?slug=..., Kha's by default)."""
+    _require_admin(request)
+    await _send_daily_summary(_admin_business(slug).slug)
     return {"status": "ok"}
 
 
 @app.get("/preview-summary")
-async def preview_summary():
-    lines = _summary_lines(default_business(), store.conversations(business_id()))
+async def preview_summary(request: Request, slug: str = DEFAULT_BUSINESS_SLUG):
+    """Show what a business's summary would say, without sending or clearing it."""
+    _require_admin(request)
+    business = _admin_business(slug)
+    biz_id = store.ensure_business(business.slug, business.name)
+    lines = _summary_lines(business, store.conversations(biz_id))
     return {"chunks": _dm_chunks(lines)}
 
 
@@ -804,25 +875,39 @@ a.button{{display:inline-block;background:#222;color:#fff;padding:.75rem 1.25rem
 </head><body><h1>{escape(title)}</h1>{body_html}</body></html>""")
 
 
-class InviteRequest(BaseModel):
+class SlugRequest(BaseModel):
     slug: str
 
 
 @app.post("/admin/invites")
-async def create_invite(req: InviteRequest, x_admin_secret: str = Header("")):
+async def create_invite(req: SlugRequest, request: Request):
     """Make a one-time link an owner opens to connect their Instagram to a business."""
-    admin_secret = os.environ.get("ADMIN_SECRET", "")
-    if not admin_secret or not hmac.compare_digest(x_admin_secret, admin_secret):
-        raise HTTPException(status_code=403, detail="Forbidden")
-    if req.slug not in business_slugs():
-        raise HTTPException(status_code=404, detail=f"No businesses/{req.slug}/ folder")
-    business = load_business(req.slug)
+    _require_admin(request)
+    return _new_invite(_admin_business(req.slug))
+
+
+def _new_invite(business: Business) -> dict:
     invite = secrets.token_urlsafe(24)
     expires_at = time.time() + INVITE_TTL
     store.create_invite(_hash_invite(invite), store.ensure_business(business.slug, business.name), expires_at)
     logger.info("Connect invite created for %s", business.slug)
     return {"url": f"{instagram_connect.base_url()}/connect?invite={invite}",
             "expires_at": datetime.fromtimestamp(expires_at, tz=ET).isoformat()}
+
+
+@app.post("/admin/delete-data")
+async def delete_business_data(req: SlugRequest, request: Request):
+    """For an owner who asks directly: disconnect their Instagram and delete what Mia stored."""
+    _require_admin(request)
+    business = _admin_business(req.slug)
+    biz_id = store.ensure_business(business.slug, business.name)
+    accounts = store.accounts_for_business(biz_id)
+    for account_id in accounts:
+        store.disconnect_account(account_id)
+        _connected_tokens.pop(account_id, None)
+    store.delete_business_history(biz_id)
+    logger.info("Deleted stored data for %s (%d accounts disconnected)", business.slug, len(accounts))
+    return {"status": "deleted", "accounts_disconnected": len(accounts)}
 
 
 @app.get("/connect")
@@ -925,6 +1010,332 @@ async def instagram_deletion_status(code: str = ""):
 
 
 static_dir = os.path.join(os.path.dirname(__file__), "..", "static")
+
+
+# --- Admin panel (/admin): log in with ADMIN_SECRET ---
+
+
+class AdminLogin(BaseModel):
+    secret: str
+
+
+class NewBusiness(BaseModel):
+    slug: str
+    name: str
+    owner_name: str
+    copy_from: str = ""
+
+
+class BusinessFiles(BaseModel):
+    files: dict[str, str]
+
+
+class InviteEmail(BaseModel):
+    email: str = ""
+
+
+@app.get("/admin")
+async def admin_page():
+    return FileResponse(os.path.join(static_dir, "admin.html"))
+
+
+@app.post("/admin/api/login")
+async def admin_login(req: AdminLogin, request: Request, response: Response):
+    admin_secret = os.environ.get("ADMIN_SECRET", "")
+    if not admin_secret or not hmac.compare_digest(req.secret.strip(), admin_secret):
+        logger.warning("Admin panel login failed")
+        raise HTTPException(status_code=403, detail="Wrong admin secret")
+    expires = int(time.time()) + ADMIN_SESSION_TTL
+    https = request.headers.get("x-forwarded-proto", request.url.scheme) == "https"
+    response.set_cookie(ADMIN_COOKIE, f"{expires}.{_admin_session_sig(expires, admin_secret)}",
+                        max_age=ADMIN_SESSION_TTL, httponly=True, secure=https, samesite="strict")
+    return {"ok": True}
+
+
+@app.post("/admin/api/logout")
+async def admin_logout(response: Response):
+    response.delete_cookie(ADMIN_COOKIE)
+    return {"ok": True}
+
+
+@app.get("/admin/api/session")
+async def admin_session(request: Request):
+    return {"admin": _is_admin(request)}
+
+
+def _save_business_files(slug: str, files: dict[str, str], note: str) -> Business:
+    """Validate and save a business's files from the panel, keeping a version for undo.
+    Raises ValueError with a readable reason if the files don't make a working business."""
+    files = {name: files.get(name, "") for name in business_config.FILE_NAMES}
+    business = build_business(slug, files)
+    if not store.business_versions(slug, limit=1) and slug in business_slugs():
+        # First panel save: keep what it replaces so it can be restored.
+        store.add_business_version(slug, business_files(slug), "Starting point")
+    store.save_business(slug, files)
+    store.add_business_version(slug, files, note)
+    load_business.cache_clear()
+    store.ensure_business(slug, business.name)
+    logger.info("Business %s saved: %s", slug, note)
+    return business
+
+
+def _business_overview(slug: str) -> dict:
+    try:
+        business = load_business(slug)
+    except ValueError as e:
+        return {"slug": slug, "name": slug, "error": str(e), "source": business_source(slug)}
+    biz_id = store.ensure_business(business.slug, business.name)
+    return {
+        "slug": slug,
+        "name": business.name,
+        "owner_name": business.owner_name,
+        "source": business_source(slug),
+        "has_repo_folder": (business_config.BUSINESSES_DIR / slug / "business.json").is_file(),
+        "summary_email": business.summary_email,
+        "summary_hour": business.summary_hour,
+        "timezone": business.timezone,
+        "pending_conversations": len(store.conversations(biz_id)),
+        "accounts": [{"account_id": a, "username": u, "token_expires_at": e}
+                     for a, u, e in store.account_details(biz_id)],
+    }
+
+
+@app.get("/admin/api/businesses")
+async def admin_businesses(request: Request):
+    _require_admin(request)
+    return {"businesses": [_business_overview(slug) for slug in business_slugs()],
+            "email_configured": email_configured()}
+
+
+@app.post("/admin/api/businesses")
+async def admin_create_business(req: NewBusiness, request: Request):
+    _require_admin(request)
+    slug = req.slug.strip().lower()
+    if not SLUG_RE.match(slug):
+        raise HTTPException(status_code=400, detail="Use lowercase letters, numbers and dashes, e.g. lash-lab")
+    if slug in business_slugs():
+        raise HTTPException(status_code=409, detail=f"{slug} already exists")
+    if req.copy_from:
+        _admin_business(req.copy_from)
+        files = dict(business_files(req.copy_from))
+    else:
+        files = starter_files()
+    cfg = json.loads(files["business.json"])
+    old_owner = cfg.get("owner_name", "")
+    cfg["name"], cfg["owner_name"] = req.name.strip(), req.owner_name.strip()
+    if old_owner:
+        for key in ("greeting", "escalation_reply", "out_of_hours_note"):
+            cfg[key] = cfg[key].replace(old_owner, cfg["owner_name"])
+    cfg["summary_email"] = ""
+    files["business.json"] = json.dumps(cfg, indent=2, ensure_ascii=False) + "\n"
+    try:
+        _save_business_files(slug, files, "Created in the admin panel")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return _business_overview(slug)
+
+
+@app.get("/admin/api/businesses/{slug}")
+async def admin_business(slug: str, request: Request):
+    _require_admin(request)
+    if slug not in business_slugs():
+        raise HTTPException(status_code=404, detail=f"No business {slug!r}")
+    return {**_business_overview(slug), "files": business_files(slug)}
+
+
+@app.put("/admin/api/businesses/{slug}")
+async def admin_save_business(slug: str, req: BusinessFiles, request: Request):
+    _require_admin(request)
+    if slug not in business_slugs():
+        raise HTTPException(status_code=404, detail=f"No business {slug!r}")
+    try:
+        _save_business_files(slug, req.files, "Edited in the admin panel")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return _business_overview(slug)
+
+
+@app.delete("/admin/api/businesses/{slug}/saved")
+async def admin_discard_saved(slug: str, request: Request):
+    """Drop panel edits so a business follows its repo folder again."""
+    _require_admin(request)
+    if not (business_config.BUSINESSES_DIR / slug / "business.json").is_file():
+        raise HTTPException(status_code=400, detail="This business only exists in the panel; there's no repo folder to go back to")
+    store.discard_saved_business(slug)
+    load_business.cache_clear()
+    store.add_business_version(slug, business_files(slug), "Back to the repo folder")
+    logger.info("Business %s reverted to its repo folder", slug)
+    return _business_overview(slug)
+
+
+@app.get("/admin/api/businesses/{slug}/versions")
+async def admin_versions(slug: str, request: Request):
+    _require_admin(request)
+    return {"versions": [{"id": i, "note": n, "saved_at": t} for i, n, t in store.business_versions(slug)]}
+
+
+@app.post("/admin/api/businesses/{slug}/versions/{version_id}/restore")
+async def admin_restore_version(slug: str, version_id: int, request: Request):
+    _require_admin(request)
+    found = store.business_version(version_id)
+    if not found or found[0] != slug:
+        raise HTTPException(status_code=404, detail="No such version")
+    saved_at = next((t for i, _, t in store.business_versions(slug, limit=10_000) if i == version_id), None)
+    when = datetime.fromtimestamp(saved_at, tz=ET).strftime("%b %-d, %-I:%M %p") if saved_at else f"#{version_id}"
+    try:
+        _save_business_files(slug, found[1], f"Restored the version from {when}")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return _business_overview(slug)
+
+
+@app.get("/admin/api/businesses/{slug}/summary")
+async def admin_preview_summary(slug: str, request: Request):
+    _require_admin(request)
+    business = _admin_business(slug)
+    lines = _summary_lines(business, store.conversations(store.ensure_business(business.slug, business.name)))
+    return {"text": "".join(lines).rstrip()}
+
+
+@app.post("/admin/api/businesses/{slug}/summary")
+async def admin_send_summary(slug: str, request: Request):
+    _require_admin(request)
+    business = _admin_business(slug)
+    await _send_daily_summary(business.slug)
+    return {"ok": True, "to": business.summary_email if email_configured() and business.summary_email else ""}
+
+
+@app.post("/admin/api/businesses/{slug}/invite")
+async def admin_invite(slug: str, req: InviteEmail, request: Request):
+    _require_admin(request)
+    business = _admin_business(slug)
+    if not instagram_connect.connect_configured() or not crypto_configured():
+        raise HTTPException(status_code=400, detail="Instagram login isn't configured on the server yet")
+    invite = _new_invite(business)
+    email = req.email.strip()
+    if email:
+        text = (f"Hi {business.owner_name},\n\n"
+                f"Here's your private link to connect {business.name}'s Instagram to {business.assistant_name}:\n\n"
+                f"{invite['url']}\n\n"
+                f"Open it, log in with your business Instagram account, and tap Allow. "
+                f"The link works once and expires in 7 days.\n")
+        invite["emailed"] = await send_email(email, f"Connect your Instagram to {business.assistant_name}", text)
+    return invite
+
+
+# --- Admin assistant: a chat that proposes business edits for the admin to apply ---
+
+assistant = Assistant(
+    list_slugs=lambda: business_slugs(),
+    business_name=lambda slug: _safe_business_name(slug),
+    read_files=lambda slug: business_files(slug),
+    validate=lambda slug, files: build_business(slug, files) and None,
+)
+_assistant_busy: set[str] = set()
+IMAGE_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+
+
+def _safe_business_name(slug: str) -> str:
+    try:
+        return load_business(slug).name
+    except ValueError:
+        return slug
+
+
+class AssistantImage(BaseModel):
+    media_type: str
+    data: str
+
+
+class AssistantMessage(BaseModel):
+    message: str
+    chat_id: str = ""
+    viewing: str = ""
+    images: list[AssistantImage] = []
+
+
+@app.post("/admin/api/assistant")
+async def admin_assistant(req: AssistantMessage, request: Request):
+    _require_admin(request)
+    if not req.message.strip():
+        raise HTTPException(status_code=400, detail="Type a message")
+    if len(req.images) > 4:
+        raise HTTPException(status_code=400, detail="Attach at most 4 images")
+    for img in req.images:
+        if img.media_type not in IMAGE_TYPES:
+            raise HTTPException(status_code=400, detail="Images must be PNG, JPEG, GIF or WebP")
+        if len(img.data) > 7_000_000:
+            raise HTTPException(status_code=400, detail="Each image must be under 5 MB")
+    chat = assistant.chat(req.chat_id) if req.chat_id else None
+    if chat is None:
+        chat = assistant.new_chat(secrets.token_urlsafe(12))
+    if chat.id in _assistant_busy:
+        raise HTTPException(status_code=409, detail="Still working on your last message")
+    _assistant_busy.add(chat.id)
+    try:
+        result = await assistant.send(chat, req.message.strip(), [i.model_dump() for i in req.images],
+                                      req.viewing if req.viewing in business_slugs() else "")
+    except anthropic.APIError as e:
+        logger.error("Admin assistant call failed: %s", e)
+        raise HTTPException(status_code=502, detail=f"The assistant couldn't reach Claude: {e}")
+    finally:
+        _assistant_busy.discard(chat.id)
+    return {"chat_id": chat.id, **result}
+
+
+@app.get("/admin/api/assistant/{chat_id}")
+async def admin_assistant_chat(chat_id: str, request: Request):
+    _require_admin(request)
+    chat = assistant.chat(chat_id)
+    if chat is None:
+        raise HTTPException(status_code=404, detail="That chat has ended")
+    return {"chat_id": chat.id, "transcript": chat.transcript,
+            "proposals": [assistant.proposals[p].to_dict() for p in chat.proposal_ids]}
+
+
+def _proposal(proposal_id: int):
+    proposal = assistant.proposals.get(proposal_id)
+    if proposal is None:
+        raise HTTPException(status_code=404, detail="That proposal has expired")
+    if proposal.status != "pending":
+        raise HTTPException(status_code=409, detail=f"That proposal was already {proposal.status}")
+    return proposal
+
+
+@app.post("/admin/api/assistant/proposals/{proposal_id}/apply")
+async def admin_apply_proposal(proposal_id: int, request: Request):
+    _require_admin(request)
+    proposal = _proposal(proposal_id)
+    files = business_files(proposal.slug)
+    if files[proposal.file] != proposal.before:
+        raise HTTPException(status_code=409, detail=f"{proposal.file} changed since this was proposed. Ask the assistant to redo it.")
+    try:
+        _save_business_files(proposal.slug, {**files, proposal.file: proposal.after},
+                             f"Assistant: {proposal.summary}" if proposal.summary else "Assistant edit")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    proposal.status = "applied"
+    return {"proposal": proposal.to_dict(), "business": _business_overview(proposal.slug)}
+
+
+@app.post("/admin/api/assistant/proposals/{proposal_id}/dismiss")
+async def admin_dismiss_proposal(proposal_id: int, request: Request):
+    _require_admin(request)
+    proposal = _proposal(proposal_id)
+    proposal.status = "dismissed"
+    return {"proposal": proposal.to_dict()}
+
+
+@app.get("/admin/api/logs")
+async def admin_logs(request: Request, q: str = "", level: str = "", limit: int = Query(500, le=3000)):
+    _require_admin(request)
+    levels = {"ERROR": ("ERROR", "CRITICAL"), "WARNING": ("WARNING", "ERROR", "CRITICAL")}.get(level.upper())
+    needle = q.lower()
+    lines = [r for r in recent_logs.records
+             if (not levels or r["level"] in levels) and (not needle or needle in r["message"].lower())]
+    return {"lines": lines[-limit:]}
+
+
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 

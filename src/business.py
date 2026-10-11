@@ -10,6 +10,10 @@ Each business folder holds:
 src/prompt_template.md holds the parts every business shares (categories, the JSON
 output contract, action rules) and slots the business's files in. Placeholders are
 written {{name}}.
+
+Businesses can also be created or edited in the admin panel. Those settings live in
+the database (see use_saved_settings) and take precedence over a repo folder with the
+same slug, so a business edited in the panel no longer follows its folder.
 """
 import json
 import re
@@ -17,11 +21,15 @@ from dataclasses import dataclass
 from datetime import datetime, time
 from functools import cached_property, lru_cache
 from pathlib import Path
+from typing import Callable, Optional
 from zoneinfo import ZoneInfo
 
 BUSINESSES_DIR = Path(__file__).parent.parent / "businesses"
 TEMPLATE_PATH = Path(__file__).parent / "prompt_template.md"
+STARTER_DIR = Path(__file__).parent / "business_starter"
 DEFAULT_BUSINESS_SLUG = "glam-by-dang"
+FILE_NAMES = ("business.json", "about.md", "rules.md", "context.md")
+SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 _PLACEHOLDER = re.compile(r"\{\{(\w+)\}\}")
 
@@ -104,40 +112,102 @@ def _parse_time(s: str) -> time:
     return time(int(h), int(m))
 
 
+# Settings saved from the admin panel: slug -> {file name: text}. Set by the server.
+_saved_get: Callable[[str], Optional[dict[str, str]]] = lambda slug: None
+_saved_slugs: Callable[[], list[str]] = lambda: []
+
+
+def use_saved_settings(get: Callable[[str], Optional[dict[str, str]]],
+                       slugs: Callable[[], list[str]]) -> None:
+    global _saved_get, _saved_slugs
+    _saved_get, _saved_slugs = get, slugs
+    load_business.cache_clear()
+
+
+def _folder_files(folder: Path) -> dict[str, str]:
+    return {name: (folder / name).read_text(encoding="utf-8") for name in FILE_NAMES}
+
+
+def business_files(slug: str) -> dict[str, str]:
+    """The four files a business is built from: the panel's saved copy, else its repo folder."""
+    saved = _saved_get(slug)
+    if saved is not None:
+        return saved
+    folder = BUSINESSES_DIR / slug
+    if not (folder / "business.json").is_file():
+        raise KeyError(f"No business {slug!r}")
+    return _folder_files(folder)
+
+
+def business_source(slug: str) -> str:
+    return "panel" if _saved_get(slug) is not None else "repo"
+
+
+def starter_files() -> dict[str, str]:
+    """A blank business to fill in, for the admin panel's "new business"."""
+    return _folder_files(STARTER_DIR)
+
+
+def build_business(slug: str, files: dict[str, str]) -> Business:
+    """Build and check a business; raises ValueError with a readable reason if it's broken."""
+    try:
+        cfg = json.loads(files["business.json"])
+        tiers = sorted(
+            (CancellationTier(float(t["min_hours"]), t["status"]) for t in cfg.get("cancellation_tiers", [])),
+            key=lambda t: t.min_hours,
+            reverse=True,
+        )
+        if not tiers:
+            raise ValueError("Add at least one cancellation tier")
+        ZoneInfo(cfg["timezone"])
+        summary_hour = int(cfg.get("summary_hour", 10))
+        if not 0 <= summary_hour <= 23:
+            raise ValueError("summary_hour must be between 0 and 23")
+        business = Business(
+            slug=slug,
+            name=cfg["name"],
+            owner_name=cfg["owner_name"],
+            assistant_name=cfg["assistant_name"],
+            timezone=cfg["timezone"],
+            city=cfg["city"],
+            hours={day: (_parse_time(o), _parse_time(c)) for day, (o, c) in cfg["hours"].items()},
+            booking_link=cfg["booking_link"],
+            review_link=cfg["review_link"],
+            greeting=cfg["greeting"],
+            escalation_reply=cfg["escalation_reply"],
+            out_of_hours_note=cfg["out_of_hours_note"],
+            cancellation_tiers=tuple(tiers),
+            summary_email=cfg.get("summary_email", ""),
+            summary_hour=summary_hour,
+            about=files["about.md"].removesuffix("\n"),
+            rules=files["rules.md"].removesuffix("\n"),
+            context=files["context.md"].removesuffix("\n"),
+        )
+        business.system_prompt  # fails on an unknown {{placeholder}}
+    except json.JSONDecodeError as e:
+        raise ValueError(f"business.json isn't valid JSON: {e}") from None
+    except KeyError as e:
+        what = str(e.args[0]) if e.args else str(e)
+        if what.startswith("Unknown placeholder"):
+            raise ValueError(f"{what}. Placeholders you can use: {{{{owner}}}}, {{{{assistant}}}}, "
+                             f"{{{{business}}}}, {{{{booking_link}}}}, {{{{review_link}}}}") from None
+        raise ValueError(f"Missing setting: {what}") from None
+    except Exception as e:
+        if isinstance(e, ValueError):
+            raise
+        raise ValueError(f"{type(e).__name__}: {e}") from None
+    return business
+
+
 @lru_cache(maxsize=None)
 def load_business(slug: str) -> Business:
-    folder = BUSINESSES_DIR / slug
-    cfg = json.loads((folder / "business.json").read_text(encoding="utf-8"))
-    tiers = sorted(
-        (CancellationTier(t["min_hours"], t["status"]) for t in cfg.get("cancellation_tiers", [])),
-        key=lambda t: t.min_hours,
-        reverse=True,
-    )
-    return Business(
-        slug=slug,
-        name=cfg["name"],
-        owner_name=cfg["owner_name"],
-        assistant_name=cfg["assistant_name"],
-        timezone=cfg["timezone"],
-        city=cfg["city"],
-        hours={day: (_parse_time(o), _parse_time(c)) for day, (o, c) in cfg["hours"].items()},
-        booking_link=cfg["booking_link"],
-        review_link=cfg["review_link"],
-        greeting=cfg["greeting"],
-        escalation_reply=cfg["escalation_reply"],
-        out_of_hours_note=cfg["out_of_hours_note"],
-        cancellation_tiers=tuple(tiers),
-        summary_email=cfg.get("summary_email", ""),
-        summary_hour=cfg.get("summary_hour", 10),
-        about=_read(folder / "about.md"),
-        rules=_read(folder / "rules.md"),
-        context=_read(folder / "context.md"),
-    )
+    return build_business(slug, business_files(slug))
 
 
 def business_slugs() -> list[str]:
-    """Every business with a folder in businesses/."""
-    return sorted(p.parent.name for p in BUSINESSES_DIR.glob("*/business.json"))
+    """Every business: repo folders in businesses/ plus any created in the admin panel."""
+    folders = {p.parent.name for p in BUSINESSES_DIR.glob("*/business.json")}
+    return sorted(folders | set(_saved_slugs()))
 
 
 def default_business() -> Business:
