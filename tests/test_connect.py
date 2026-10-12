@@ -252,10 +252,11 @@ def test_older_databases_get_the_reusable_invite_column():
     assert s.open_invite("new") == (biz, "lash-lab") and s.open_invite("h") is None
 
 
-def test_homepage_and_simulator():
+def test_homepage_and_privacy_and_no_public_simulator():
     r = client.get("/")
     assert r.status_code == 200 and "Instagram DMs, answered" in r.text and "/privacy" in r.text
-    assert "DM Simulator" in client.get("/simulator").text
+    assert client.get("/simulator").status_code == 404
+    assert client.post("/chat", json={"message": "hi"}).status_code in (404, 405)
     assert "Privacy policy" in client.get("/privacy").text
 
 

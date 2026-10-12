@@ -24,6 +24,9 @@ import httpx
 import anthropic
 
 import instagram_connect
+from accounts import (ROLES, LoginThrottle, User, check_password, hash_link_token, hash_password,
+                      normalize_email, password_problem, read_session_cookie, session_cookie, valid_email)
+import accounts
 from admin_assistant import Assistant
 from connected_tokens import ConnectedTokenStore, crypto_configured
 from instagram_connect import ConnectError
@@ -233,7 +236,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Glam by Dang DM Simulator", lifespan=lifespan)
+app = FastAPI(title="Mia", lifespan=lifespan)
 
 
 class SessionState:
@@ -268,143 +271,6 @@ def get_session(session_id: str) -> SessionState:
     session = sessions[session_id]
     session.last_activity = time.time()
     return session
-
-
-class MessageRequest(BaseModel):
-    session_id: str
-    message: str
-
-
-class KhaReplyRequest(BaseModel):
-    session_id: str
-    message: str
-
-
-class SeedHistoryRequest(BaseModel):
-    session_id: str
-    history: list[dict]
-
-
-class ResetRequest(BaseModel):
-    session_id: str
-
-
-@app.post("/chat")
-async def chat(req: MessageRequest):
-    if not req.message.strip():
-        raise HTTPException(status_code=400, detail="Message cannot be empty.")
-    if len(req.message) > MAX_MESSAGE_LENGTH:
-        raise HTTPException(status_code=400, detail="Message too long.")
-    logger.info("incoming message: session=%s length=%d", req.session_id, len(req.message))
-
-    session = get_session(req.session_id)
-    now = time.time()
-
-    # If Kha is actively handling this conversation, stay silent
-    if session.kha_active:
-        last_kha = session.last_kha_reply_time or 0
-        if (now - last_kha) < NEW_CONVERSATION_THRESHOLD:
-            return {"action": "silent", "category": None, "classification": None,
-                    "messages": None, "escalation": None}
-        else:
-            session.kha_active = False  # Enough time has passed — re-engage
-
-    session.pending_messages.append(req.message.strip())
-
-    if session.debounce_task and not session.debounce_task.done():
-        session.debounce_task.cancel()
-
-    loop = asyncio.get_running_loop()
-    if session.debounce_future is None or session.debounce_future.done():
-        session.debounce_future = loop.create_future()
-
-    future = session.debounce_future
-
-    async def debounce():
-        try:
-            await asyncio.sleep(DEBOUNCE_SECONDS)
-        except asyncio.CancelledError:
-            return
-
-        fire_time = time.time()
-
-        # Re-check kha_active — she may have replied during the debounce window
-        if session.kha_active and session.last_kha_reply_time and \
-                (fire_time - session.last_kha_reply_time) < NEW_CONVERSATION_THRESHOLD:
-            session.pending_messages.clear()
-            if not future.done():
-                future.set_result({"action": "silent", "category": None,
-                                   "classification": None, "messages": None, "escalation": None})
-            return
-
-        combined = "\n".join(session.pending_messages)
-        session.pending_messages.clear()
-
-        is_new_conversation = (
-            session.last_reply_time is None or
-            (fire_time - session.last_reply_time) >= NEW_CONVERSATION_THRESHOLD
-        )
-
-        try:
-            result = process_message(combined, session.history, is_new_conversation)
-        except Exception as e:
-            logger.error("process_message failed: %s", e, exc_info=True)
-            result = {
-                "action": "reply",
-                "category": "escalate",
-                "classification": {"confidence": "low"},
-                "messages": [default_business().escalation_reply],
-                "escalation": None,
-            }
-
-        if result.get("messages"):
-            session.history.append({"role": "user", "content": combined})
-            session.history.append({"role": "assistant", "content": " ".join(result["messages"])})
-            session.last_reply_time = fire_time
-
-        asyncio.create_task(_log_conversation(default_account(), req.session_id, result))
-
-        if not future.done():
-            future.set_result(result)
-
-    session.debounce_task = asyncio.create_task(debounce())
-    return await future
-
-
-@app.post("/kha-reply")
-async def kha_reply(req: KhaReplyRequest):
-    """Simulate Kha replying directly — marks assistant as inactive for this conversation."""
-    session = get_session(req.session_id)
-    session.history.append({"role": "assistant", "content": req.message})
-    session.kha_active = True
-    session.last_kha_reply_time = time.time()
-    logger.info("kha replied directly: session=%s", req.session_id)
-    return {"status": "ok"}
-
-
-@app.post("/seed-history")
-async def seed_history(req: SeedHistoryRequest):
-    """Pre-load a conversation history to simulate a returning customer."""
-    session = get_session(req.session_id)
-    # Cancel any in-flight debounce
-    if session.debounce_task and not session.debounce_task.done():
-        session.debounce_task.cancel()
-    session.history = req.history
-    session.last_reply_time = None   # treat next message as a new conversation
-    session.kha_active = False
-    session.pending_messages = []
-    return {"status": "ok"}
-
-
-@app.post("/reset")
-async def reset(req: ResetRequest):
-    if req.session_id in sessions:
-        s = sessions[req.session_id]
-        if s.debounce_task and not s.debounce_task.done():
-            s.debounce_task.cancel()
-    sessions[req.session_id] = SessionState()
-    logger.info("session reset: %s", req.session_id)
-    return {"status": "ok"}
 
 
 async def _send_instagram_message(account: Account, recipient_id: str, text: str) -> None:
@@ -738,32 +604,64 @@ async def _connected_token_refresh_scheduler() -> None:
         await asyncio.sleep(60 * 60)
 
 
-ADMIN_COOKIE = "mia_admin"
-ADMIN_SESSION_TTL = 7 * 24 * 60 * 60
+SESSION_COOKIE = "mia_session"
+# The X-Admin-Secret header (for curl) acts as an admin without a login.
+SECRET_ADMIN = User(0, "admin-secret", "admin", "", True, True, 0, 0.0, None)
+login_throttle = LoginThrottle()
 
 
-def _admin_session_sig(expires: int, admin_secret: str) -> str:
-    return hmac.new(admin_secret.encode(), f"admin-session:{expires}".encode(), hashlib.sha256).hexdigest()
+def _session_key() -> str:
+    """Sessions are signed with ADMIN_SECRET; without it nobody can log in."""
+    return os.environ.get("ADMIN_SECRET", "")
 
 
-def _is_admin(request: Request) -> bool:
-    """The X-Admin-Secret header (for curl) or a signed session cookie from the admin panel login."""
-    admin_secret = os.environ.get("ADMIN_SECRET", "")
-    if not admin_secret:
-        return False
+def _bootstrap_admin() -> None:
+    """Make sure the operator's admin login exists (ADMIN_EMAIL, devon@itsmia.info by default)."""
+    email = normalize_email(os.environ.get("ADMIN_EMAIL", "devon@itsmia.info"))
+    if email and store.user_by_email(email) is None:
+        store.create_user(email, "admin")
+        logger.info("Created the admin login %s", email)
+
+
+def _current_user(request: Request) -> Optional[User]:
+    key = _session_key()
+    if not key:
+        return None
     header = request.headers.get("x-admin-secret", "")
-    if header and hmac.compare_digest(header, admin_secret):
-        return True
-    cookie = request.cookies.get(ADMIN_COOKIE, "")
-    expires, _, sig = cookie.partition(".")
-    if not expires.isdigit() or int(expires) < time.time():
-        return False
-    return hmac.compare_digest(sig, _admin_session_sig(int(expires), admin_secret))
+    if header and hmac.compare_digest(header, key):
+        return SECRET_ADMIN
+    found = read_session_cookie(key, request.cookies.get(SESSION_COOKIE, ""))
+    if not found:
+        return None
+    row = store.user(found[0])
+    if row is None:
+        return None
+    user = User.from_row(row)
+    if not user.active or user.session_epoch != found[1]:
+        return None
+    return user
 
 
-def _require_admin(request: Request) -> None:
-    if not _is_admin(request):
+def _require_user(request: Request) -> User:
+    user = _current_user(request)
+    if user is None:
         raise HTTPException(status_code=403, detail="Forbidden")
+    return user
+
+
+def _require_admin(request: Request) -> User:
+    user = _require_user(request)
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return user
+
+
+def _require_business(request: Request, slug: str) -> tuple[User, Business]:
+    """The logged-in person and the business, if they're an admin or that business's owner."""
+    user = _require_user(request)
+    if not user.can_access(slug):
+        raise HTTPException(status_code=404, detail=f"No business {slug!r}")
+    return user, _admin_business(slug)
 
 
 def _admin_business(slug: str) -> Business:
@@ -1043,11 +941,13 @@ async def instagram_deletion_status(code: str = ""):
 static_dir = os.path.join(os.path.dirname(__file__), "..", "static")
 
 
-# --- Admin panel (/admin): log in with ADMIN_SECRET ---
+# --- Admin panel (/admin): admins and business owners log in with email and password ---
 
 
-class AdminLogin(BaseModel):
-    secret: str
+class Login(BaseModel):
+    email: str = ""
+    password: str = ""
+    secret: str = ""   # the ADMIN_SECRET, as a fallback way in for the operator
 
 
 class NewBusiness(BaseModel):
@@ -1066,33 +966,211 @@ class InviteEmail(BaseModel):
     reviewer: bool = False
 
 
+class ForgotPassword(BaseModel):
+    email: str
+
+
+class SetPassword(BaseModel):
+    token: str
+    password: str
+
+
+class NewUser(BaseModel):
+    email: str
+    role: str = "owner"
+    business_slug: str = ""
+    send_link: bool = True
+
+
+class UserAccess(BaseModel):
+    active: bool
+
+
+class PasswordLinkRequest(BaseModel):
+    send_email: bool = True
+
+
 @app.get("/admin")
 async def admin_page():
     return FileResponse(os.path.join(static_dir, "admin.html"))
 
 
-@app.post("/admin/api/login")
-async def admin_login(req: AdminLogin, request: Request, response: Response):
-    admin_secret = os.environ.get("ADMIN_SECRET", "")
-    if not admin_secret or not hmac.compare_digest(req.secret.strip(), admin_secret):
-        logger.warning("Admin panel login failed")
-        raise HTTPException(status_code=403, detail="Wrong admin secret")
-    expires = int(time.time()) + ADMIN_SESSION_TTL
+def _start_session(request: Request, response: Response, user: User) -> dict:
     https = request.headers.get("x-forwarded-proto", request.url.scheme) == "https"
-    response.set_cookie(ADMIN_COOKIE, f"{expires}.{_admin_session_sig(expires, admin_secret)}",
-                        max_age=ADMIN_SESSION_TTL, httponly=True, secure=https, samesite="strict")
-    return {"ok": True}
+    response.set_cookie(SESSION_COOKIE, session_cookie(_session_key(), user), max_age=accounts.SESSION_TTL,
+                        httponly=True, secure=https, samesite="strict")
+    store.record_login(user.id)
+    logger.info("%s logged in to the panel", user.email)
+    return {"user": user.to_dict()}
+
+
+@app.post("/admin/api/login")
+async def admin_login(req: Login, request: Request, response: Response):
+    key = _session_key()
+    if not key:
+        raise HTTPException(status_code=503, detail="Logins aren't set up on the server (ADMIN_SECRET is missing)")
+    _bootstrap_admin()
+    if req.secret:
+        if not hmac.compare_digest(req.secret.strip(), key):
+            logger.warning("Panel login with the admin secret failed")
+            raise HTTPException(status_code=403, detail="Wrong admin secret")
+        row = store.user_by_email(normalize_email(os.environ.get("ADMIN_EMAIL", "devon@itsmia.info")))
+        return _start_session(request, response, User.from_row(row))
+    email = normalize_email(req.email)
+    if login_throttle.blocked(email):
+        raise HTTPException(status_code=429, detail="Too many attempts. Try again in 15 minutes or reset your password.")
+    row = store.user_by_email(email)
+    ok = check_password(req.password, row[4] if row and row[4] else accounts._DUMMY_HASH)
+    user = User.from_row(row) if row else None
+    if not (ok and user and user.active and user.has_password):
+        login_throttle.failed(email)
+        logger.warning("Panel login failed for %s", email or "(no email)")
+        raise HTTPException(status_code=403, detail="Wrong email or password")
+    login_throttle.succeeded(email)
+    return _start_session(request, response, user)
 
 
 @app.post("/admin/api/logout")
 async def admin_logout(response: Response):
-    response.delete_cookie(ADMIN_COOKIE)
+    response.delete_cookie(SESSION_COOKIE)
     return {"ok": True}
 
 
 @app.get("/admin/api/session")
 async def admin_session(request: Request):
-    return {"admin": _is_admin(request)}
+    user = _current_user(request)
+    return {"admin": bool(user and user.is_admin), "user": user.to_dict() if user else None,
+            "business_name": _safe_business_name(user.business_slug) if user and user.business_slug else ""}
+
+
+def _base_url(request: Request) -> str:
+    return instagram_connect.base_url() or str(request.base_url).rstrip("/")
+
+
+async def _password_link(request: Request, user: User, send: bool) -> dict:
+    """A link to set (first time) or reset a password, optionally emailed to the person."""
+    setting_up = not user.has_password
+    ttl = accounts.SETUP_LINK_TTL if setting_up else accounts.RESET_LINK_TTL
+    token = secrets.token_urlsafe(32)
+    expires_at = time.time() + ttl
+    store.create_password_link(hash_link_token(token), user.id, expires_at)
+    url = f"{_base_url(request)}/admin#password={token}"
+    result = {"url": url, "kind": "setup" if setting_up else "reset",
+              "expires_at": datetime.fromtimestamp(expires_at, tz=ET).isoformat()}
+    if send:
+        where = _safe_business_name(user.business_slug) if user.business_slug else "Mia"
+        if setting_up:
+            subject, heading = "Set up your Mia login", "Set up your Mia login"
+            intro = f"You've been given access to {where} in Mia's dashboard. Choose a password to log in."
+            valid = "The link works once and expires in 7 days."
+        else:
+            subject, heading = "Reset your Mia password", "Reset your Mia password"
+            intro = "Use this link to choose a new password for Mia's dashboard."
+            valid = "The link works once and expires in 24 hours. If you didn't ask for this, you can ignore it."
+        text = f"{intro}\n\n{url}\n\nYour login email is {user.email}. {valid}\n"
+        html = email_templates.password_link(heading, intro, user.email, url, valid)
+        result["emailed"] = await send_email(user.email, subject, text, html=html)
+    logger.info("Password %s link created for %s", result["kind"], user.email)
+    return result
+
+
+@app.post("/admin/api/password/forgot")
+async def forgot_password(req: ForgotPassword, request: Request):
+    """Emails a reset link if the address has a login. Always answers the same way."""
+    _bootstrap_admin()
+    row = store.user_by_email(normalize_email(req.email))
+    if row:
+        user = User.from_row(row)
+        if user.active:
+            await _password_link(request, user, send=True)
+    return {"ok": True}
+
+
+@app.get("/admin/api/password/{token}")
+async def password_link_info(token: str):
+    user_id = store.open_password_link(hash_link_token(token))
+    if user_id is None:
+        raise HTTPException(status_code=404, detail="This link has expired or was already used. Ask for a new one.")
+    user = User.from_row(store.user(user_id))
+    return {"email": user.email, "setting_up": not user.has_password}
+
+
+@app.post("/admin/api/password")
+async def set_password(req: SetPassword, request: Request, response: Response):
+    user_id = store.open_password_link(hash_link_token(req.token))
+    if user_id is None:
+        raise HTTPException(status_code=404, detail="This link has expired or was already used. Ask for a new one.")
+    problem = password_problem(req.password)
+    if problem:
+        raise HTTPException(status_code=400, detail=problem)
+    store.set_password(user_id, hash_password(req.password))
+    user = User.from_row(store.user(user_id))
+    login_throttle.succeeded(user.email)
+    logger.info("%s set a new password", user.email)
+    return _start_session(request, response, user)
+
+
+# --- People (admin only): who can log in, and to which business ---
+
+
+def _user_or_404(user_id: int) -> User:
+    row = store.user(user_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="No such person")
+    return User.from_row(row)
+
+
+def _check_role(role: str, business_slug: str) -> str:
+    if role not in ROLES:
+        raise HTTPException(status_code=400, detail="Role must be admin or owner")
+    if role == "owner":
+        if business_slug not in business_slugs():
+            raise HTTPException(status_code=400, detail="Pick the business this owner manages")
+        return business_slug
+    return ""
+
+
+@app.get("/admin/api/users")
+async def admin_users(request: Request):
+    me = _require_admin(request)
+    _bootstrap_admin()
+    return {"users": [User.from_row(r).to_dict() for r in store.users()], "me": me.id,
+            "email_configured": email_configured()}
+
+
+@app.post("/admin/api/users")
+async def admin_create_user(req: NewUser, request: Request):
+    _require_admin(request)
+    email = normalize_email(req.email)
+    if not valid_email(email):
+        raise HTTPException(status_code=400, detail="Enter a valid email address")
+    if store.user_by_email(email):
+        raise HTTPException(status_code=409, detail=f"{email} already has a login")
+    slug = _check_role(req.role, req.business_slug)
+    user = _user_or_404(store.create_user(email, req.role, slug))
+    logger.info("Login created for %s (%s %s)", email, req.role, slug)
+    link = await _password_link(request, user, send=True) if req.send_link else None
+    return {"user": user.to_dict(), "link": link}
+
+
+@app.post("/admin/api/users/{user_id}/password-link")
+async def admin_password_link(user_id: int, req: PasswordLinkRequest, request: Request):
+    _require_admin(request)
+    user = _user_or_404(user_id)
+    if not user.active:
+        raise HTTPException(status_code=400, detail="Turn this person's access back on first")
+    return await _password_link(request, user, send=req.send_email)
+
+
+@app.post("/admin/api/users/{user_id}/access")
+async def admin_user_access(user_id: int, req: UserAccess, request: Request):
+    me = _require_admin(request)
+    user = _user_or_404(user_id)
+    if user.id == me.id and not req.active:
+        raise HTTPException(status_code=400, detail="You can't turn off your own access")
+    store.set_user_active(user.id, req.active)
+    logger.info("Access for %s turned %s", user.email, "on" if req.active else "off")
+    return {"user": _user_or_404(user_id).to_dict()}
 
 
 def _save_business_files(slug: str, files: dict[str, str], note: str) -> Business:
@@ -1134,8 +1212,8 @@ def _business_overview(slug: str) -> dict:
 
 @app.get("/admin/api/businesses")
 async def admin_businesses(request: Request):
-    _require_admin(request)
-    return {"businesses": [_business_overview(slug) for slug in business_slugs()],
+    user = _require_user(request)
+    return {"businesses": [_business_overview(slug) for slug in business_slugs() if user.can_access(slug)],
             "email_configured": email_configured()}
 
 
@@ -1169,19 +1247,15 @@ async def admin_create_business(req: NewBusiness, request: Request):
 
 @app.get("/admin/api/businesses/{slug}")
 async def admin_business(slug: str, request: Request):
-    _require_admin(request)
-    if slug not in business_slugs():
-        raise HTTPException(status_code=404, detail=f"No business {slug!r}")
+    _require_business(request, slug)
     return {**_business_overview(slug), "files": business_files(slug)}
 
 
 @app.put("/admin/api/businesses/{slug}")
 async def admin_save_business(slug: str, req: BusinessFiles, request: Request):
-    _require_admin(request)
-    if slug not in business_slugs():
-        raise HTTPException(status_code=404, detail=f"No business {slug!r}")
+    user, _ = _require_business(request, slug)
     try:
-        _save_business_files(slug, req.files, "Edited in the admin panel")
+        _save_business_files(slug, req.files, "Edited in the admin panel" if user.is_admin else f"Edited by {user.email}")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return _business_overview(slug)
@@ -1202,13 +1276,13 @@ async def admin_discard_saved(slug: str, request: Request):
 
 @app.get("/admin/api/businesses/{slug}/versions")
 async def admin_versions(slug: str, request: Request):
-    _require_admin(request)
+    _require_business(request, slug)
     return {"versions": [{"id": i, "note": n, "saved_at": t} for i, n, t in store.business_versions(slug)]}
 
 
 @app.post("/admin/api/businesses/{slug}/versions/{version_id}/restore")
 async def admin_restore_version(slug: str, version_id: int, request: Request):
-    _require_admin(request)
+    _require_business(request, slug)
     found = store.business_version(version_id)
     if not found or found[0] != slug:
         raise HTTPException(status_code=404, detail="No such version")
@@ -1223,8 +1297,7 @@ async def admin_restore_version(slug: str, version_id: int, request: Request):
 
 @app.get("/admin/api/businesses/{slug}/summary")
 async def admin_preview_summary(slug: str, request: Request):
-    _require_admin(request)
-    business = _admin_business(slug)
+    _, business = _require_business(request, slug)
     lines = _summary_lines(business, store.conversations(store.ensure_business(business.slug, business.name)))
     return {"text": "".join(lines).rstrip()}
 
@@ -1289,7 +1362,7 @@ class AssistantMessage(BaseModel):
 
 @app.post("/admin/api/assistant")
 async def admin_assistant(req: AssistantMessage, request: Request):
-    _require_admin(request)
+    user = _require_user(request)
     if not req.message.strip():
         raise HTTPException(status_code=400, detail="Type a message")
     if len(req.images) > 4:
@@ -1300,14 +1373,16 @@ async def admin_assistant(req: AssistantMessage, request: Request):
         if len(img.data) > 7_000_000:
             raise HTTPException(status_code=400, detail="Each image must be under 5 MB")
     chat = assistant.chat(req.chat_id) if req.chat_id else None
-    if chat is None:
-        chat = assistant.new_chat(secrets.token_urlsafe(12))
+    if chat is None or chat.user_id != user.id:
+        # Owners' chats can only see and change their own business
+        chat = assistant.new_chat(secrets.token_urlsafe(12), user_id=user.id,
+                                  scope=None if user.is_admin else [user.business_slug])
     if chat.id in _assistant_busy:
         raise HTTPException(status_code=409, detail="Still working on your last message")
     _assistant_busy.add(chat.id)
     try:
         result = await assistant.send(chat, req.message.strip(), [i.model_dump() for i in req.images],
-                                      req.viewing if req.viewing in business_slugs() else "")
+                                      req.viewing if req.viewing in assistant._slugs(chat) else "")
     except anthropic.APIError as e:
         logger.error("Admin assistant call failed: %s", e)
         raise HTTPException(status_code=502, detail=f"The assistant couldn't reach Claude: {e}")
@@ -1318,17 +1393,18 @@ async def admin_assistant(req: AssistantMessage, request: Request):
 
 @app.get("/admin/api/assistant/{chat_id}")
 async def admin_assistant_chat(chat_id: str, request: Request):
-    _require_admin(request)
+    user = _require_user(request)
     chat = assistant.chat(chat_id)
-    if chat is None:
+    if chat is None or chat.user_id != user.id:
         raise HTTPException(status_code=404, detail="That chat has ended")
     return {"chat_id": chat.id, "transcript": chat.transcript,
             "proposals": [assistant.proposals[p].to_dict() for p in chat.proposal_ids]}
 
 
-def _proposal(proposal_id: int):
+def _proposal(proposal_id: int, user: User):
     proposal = assistant.proposals.get(proposal_id)
-    if proposal is None:
+    chat = assistant.chats.get(proposal.chat_id) if proposal else None
+    if proposal is None or chat is None or chat.user_id != user.id or not user.can_access(proposal.slug):
         raise HTTPException(status_code=404, detail="That proposal has expired")
     if proposal.status != "pending":
         raise HTTPException(status_code=409, detail=f"That proposal was already {proposal.status}")
@@ -1337,8 +1413,8 @@ def _proposal(proposal_id: int):
 
 @app.post("/admin/api/assistant/proposals/{proposal_id}/apply")
 async def admin_apply_proposal(proposal_id: int, request: Request):
-    _require_admin(request)
-    proposal = _proposal(proposal_id)
+    user = _require_user(request)
+    proposal = _proposal(proposal_id, user)
     files = business_files(proposal.slug)
     if files[proposal.file] != proposal.before:
         raise HTTPException(status_code=409, detail=f"{proposal.file} changed since this was proposed. Ask the assistant to redo it.")
@@ -1353,10 +1429,49 @@ async def admin_apply_proposal(proposal_id: int, request: Request):
 
 @app.post("/admin/api/assistant/proposals/{proposal_id}/dismiss")
 async def admin_dismiss_proposal(proposal_id: int, request: Request):
-    _require_admin(request)
-    proposal = _proposal(proposal_id)
+    user = _require_user(request)
+    proposal = _proposal(proposal_id, user)
     proposal.status = "dismissed"
     return {"proposal": proposal.to_dict()}
+
+
+# --- Simulator: try Mia's replies for a business without touching Instagram ---
+
+
+class SimTurn(BaseModel):
+    role: str
+    content: str
+
+
+class SimulateRequest(BaseModel):
+    message: str
+    history: list[SimTurn] = []
+    new_conversation: bool = True
+
+
+@app.post("/admin/api/businesses/{slug}/simulate")
+async def admin_simulate(slug: str, req: SimulateRequest, request: Request):
+    """Mia's reply to a made-up customer message, from the business's current settings.
+    Nothing is sent to Instagram or logged to the daily summary."""
+    _, business = _require_business(request, slug)
+    message = req.message.strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="Type a message")
+    if len(message) > MAX_MESSAGE_LENGTH:
+        raise HTTPException(status_code=400, detail="Message too long")
+    history = [{"role": t.role, "content": t.content} for t in req.history
+               if t.role in ("user", "assistant") and t.content.strip()][-MAX_HISTORY:]
+    try:
+        result = await asyncio.to_thread(process_message, message, history, req.new_conversation, business)
+    except anthropic.APIError as e:
+        logger.error("Simulator call failed for %s: %s", slug, e)
+        raise HTTPException(status_code=502, detail=f"Couldn't reach Claude: {e}")
+    except Exception as e:
+        logger.error("Simulator failed for %s: %s", slug, e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Mia couldn't produce a reply. Check the logs.")
+    logger.info("Simulated a reply for %s (%s)", slug, result.get("action"))
+    return {k: result.get(k) for k in ("action", "category", "classification", "messages", "escalation",
+                                       "conversation_summary", "actions_taken")}
 
 
 @app.get("/admin/api/logs")
@@ -1375,11 +1490,6 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 @app.get("/")
 async def root():
     return FileResponse(os.path.join(static_dir, "home.html"))
-
-
-@app.get("/simulator")
-async def simulator():
-    return FileResponse(os.path.join(static_dir, "index.html"))
 
 
 @app.get("/privacy")

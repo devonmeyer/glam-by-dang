@@ -20,6 +20,7 @@ import server
 from store import ConversationRecord, Store
 
 KHA_PROMPT = business.default_business().system_prompt
+REAL_SEND_EMAIL = server.send_email
 
 
 def _client() -> TestClient:
@@ -30,6 +31,8 @@ def _client() -> TestClient:
     os.environ.pop("RESEND_API_KEY", None)
     server.store = Store(":memory:")
     server._business_id = None
+    server.login_throttle = server.LoginThrottle()
+    server.send_email = REAL_SEND_EMAIL
     business.load_business.cache_clear()
     return TestClient(server.app)
 
@@ -40,14 +43,15 @@ def _logged_in() -> TestClient:
     return c
 
 
-def test_login_sets_a_session_and_wrong_secret_is_refused():
+def test_admin_secret_login_still_works_and_wrong_secret_is_refused():
     c = _client()
     assert c.get("/admin").status_code == 200
     assert c.get("/admin/api/businesses").status_code == 403
     assert c.post("/admin/api/login", json={"secret": "nope"}).status_code == 403
-    assert c.get("/admin/api/session").json() == {"admin": False}
+    assert c.get("/admin/api/session").json()["user"] is None
     assert c.post("/admin/api/login", json={"secret": "admin-pw"}).status_code == 200
-    assert c.get("/admin/api/session").json() == {"admin": True}
+    session = c.get("/admin/api/session").json()
+    assert session["admin"] is True and session["user"]["email"] == "devon@itsmia.info"
     assert c.get("/admin/api/businesses").status_code == 200
     # The session also works for the curl-style endpoints
     assert c.get("/preview-summary").status_code == 200
@@ -56,11 +60,17 @@ def test_login_sets_a_session_and_wrong_secret_is_refused():
 
 
 def test_forged_or_expired_session_is_refused():
-    c = _client()
-    c.cookies.set(server.ADMIN_COOKIE, "9999999999.deadbeef")
+    c = _logged_in()
+    good = c.cookies.get(server.SESSION_COOKIE)
+    uid, epoch, _, sig = good.split(".")
+    c.cookies.set(server.SESSION_COOKIE, f"{uid}.{epoch}.9999999999.{sig}")
     assert c.get("/admin/api/businesses").status_code == 403
-    expired = 1000
-    c.cookies.set(server.ADMIN_COOKIE, f"{expired}.{server._admin_session_sig(expired, 'admin-pw')}")
+    user = server.User.from_row(server.store.user(int(uid)))
+    expired = server.session_cookie("admin-pw", user, now=1000)
+    c.cookies.set(server.SESSION_COOKIE, expired)
+    assert c.get("/admin/api/businesses").status_code == 403
+    other_key = server.session_cookie("other-secret", user)
+    c.cookies.set(server.SESSION_COOKIE, other_key)
     assert c.get("/admin/api/businesses").status_code == 403
 
 

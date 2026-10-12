@@ -87,6 +87,27 @@ CREATE TABLE IF NOT EXISTS bot_messages (
     sent_at REAL NOT NULL,
     PRIMARY KEY (business_id, message_id)
 );
+-- People who can log in to the panel: admins see everything, owners only their business.
+-- session_epoch goes up when a password changes or access is turned off, which ends old sessions.
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE,
+    role TEXT NOT NULL,
+    business_slug TEXT NOT NULL DEFAULT '',
+    password_hash TEXT NOT NULL DEFAULT '',
+    active INTEGER NOT NULL DEFAULT 1,
+    session_epoch INTEGER NOT NULL DEFAULT 0,
+    created_at REAL NOT NULL,
+    last_login_at REAL
+);
+-- Links that let someone set or reset their password.
+CREATE TABLE IF NOT EXISTS password_links (
+    token_hash TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    created_at REAL NOT NULL,
+    expires_at REAL NOT NULL,
+    used_at REAL
+);
 """
 
 
@@ -290,6 +311,56 @@ class Store:
             "WHERE token_hash = ?",
             (self.clock(), account_id, token_hash),
         )
+
+    # People who can log in
+
+    USER_COLUMNS = "id, email, role, business_slug, password_hash, active, session_epoch, created_at, last_login_at"
+
+    def create_user(self, email: str, role: str, business_slug: str = "") -> int:
+        self._execute("INSERT INTO users (email, role, business_slug, created_at) VALUES (?, ?, ?, ?)",
+                      (email, role, business_slug, self.clock()))
+        return self._execute("SELECT id FROM users WHERE email = ?", (email,))[0][0]
+
+    def user(self, user_id: int) -> Optional[tuple]:
+        rows = self._execute(f"SELECT {self.USER_COLUMNS} FROM users WHERE id = ?", (user_id,))
+        return tuple(rows[0]) if rows else None
+
+    def user_by_email(self, email: str) -> Optional[tuple]:
+        rows = self._execute(f"SELECT {self.USER_COLUMNS} FROM users WHERE email = ?", (email,))
+        return tuple(rows[0]) if rows else None
+
+    def users(self) -> list[tuple]:
+        return [tuple(r) for r in self._execute(f"SELECT {self.USER_COLUMNS} FROM users ORDER BY role, email")]
+
+    def set_password(self, user_id: int, password_hash: str) -> None:
+        """Also ends every session the person had, and any other password links."""
+        self._execute("UPDATE users SET password_hash = ?, session_epoch = session_epoch + 1 WHERE id = ?",
+                      (password_hash, user_id))
+        self._execute("UPDATE password_links SET used_at = ? WHERE user_id = ? AND used_at IS NULL",
+                      (self.clock(), user_id))
+
+    def set_user_active(self, user_id: int, active: bool) -> None:
+        self._execute("UPDATE users SET active = ?, session_epoch = session_epoch + 1 WHERE id = ?",
+                      (int(active), user_id))
+        if not active:
+            self._execute("UPDATE password_links SET used_at = ? WHERE user_id = ? AND used_at IS NULL",
+                          (self.clock(), user_id))
+
+    def record_login(self, user_id: int) -> None:
+        self._execute("UPDATE users SET last_login_at = ? WHERE id = ?", (self.clock(), user_id))
+
+    def create_password_link(self, token_hash: str, user_id: int, expires_at: float) -> None:
+        self._execute("INSERT INTO password_links (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
+                      (token_hash, user_id, self.clock(), expires_at))
+
+    def open_password_link(self, token_hash: str) -> Optional[int]:
+        """The user id for an unused, unexpired link, else None."""
+        rows = self._execute(
+            "SELECT l.user_id FROM password_links l JOIN users u ON u.id = l.user_id "
+            "WHERE l.token_hash = ? AND l.used_at IS NULL AND l.expires_at > ? AND u.active = 1",
+            (token_hash, self.clock()),
+        )
+        return rows[0][0] if rows else None
 
     # Daily summary log
 
