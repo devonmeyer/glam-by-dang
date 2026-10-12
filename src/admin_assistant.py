@@ -137,6 +137,8 @@ class Chat:
     transcript: list = field(default_factory=list)  # what the panel shows: {"role", "text"}
     proposal_ids: list = field(default_factory=list)
     touched: float = field(default_factory=time.time)
+    user_id: int = 0                      # who started it; only they can see it
+    scope: Optional[list] = None          # slugs this chat may read and change; None means all
 
 
 class Assistant:
@@ -166,20 +168,23 @@ class Assistant:
             del self.chats[cid]
         return self.chats.get(chat_id)
 
-    def new_chat(self, chat_id: str) -> Chat:
-        chat = Chat(chat_id)
+    def new_chat(self, chat_id: str, user_id: int = 0, scope: Optional[list] = None) -> Chat:
+        chat = Chat(chat_id, user_id=user_id, scope=scope)
         self.chats[chat_id] = chat
         return chat
 
     # --- Tools ---
 
+    def _slugs(self, chat: Chat) -> list[str]:
+        return [s for s in self.list_slugs() if chat.scope is None or s in chat.scope]
+
     def _run_tool(self, chat: Chat, name: str, args: dict) -> tuple[str, bool]:
         """Returns (result text, is_error)."""
         if name == "list_businesses":
-            return json.dumps([{"slug": s, "name": self.business_name(s)} for s in self.list_slugs()]), False
+            return json.dumps([{"slug": s, "name": self.business_name(s)} for s in self._slugs(chat)]), False
         if name == "read_business":
             slug = args.get("slug", "")
-            if slug not in self.list_slugs():
+            if slug not in self._slugs(chat):
                 return f"No business with slug {slug!r}. Use list_businesses.", True
             files = self.read_files(slug)
             return "\n\n".join(f"===== {n} =====\n{files[n]}" for n in FILE_NAMES), False
@@ -189,7 +194,7 @@ class Assistant:
 
     def _propose(self, chat: Chat, args: dict) -> tuple[str, bool]:
         slug, file = args.get("slug", ""), args.get("file", "")
-        if slug not in self.list_slugs():
+        if slug not in self._slugs(chat):
             return f"No business with slug {slug!r}.", True
         if file not in FILE_NAMES:
             return f"file must be one of {', '.join(FILE_NAMES)}", True

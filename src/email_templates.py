@@ -110,3 +110,12 @@ def invite(owner_name: str, business_name: str, assistant_name: str, url: str) -
             f'If the button doesn\'t work, paste this into your browser:<br>'
             f'<a href="{escape(url)}" style="color:{BERRY};word-break:break-all">{escape(url)}</a></p>')
     return layout(f"Connect your Instagram to {assistant_name}", body, f"Your private link for {business_name}")
+
+
+def password_link(heading: str, intro: str, email: str, url: str, valid: str) -> str:
+    body = (f'<p style="margin:0">{escape(intro)}</p>'
+            + button("Choose a password", url) +
+            f'<p style="margin:0;color:{SOFT};font-size:13px">Your login email is {escape(email)}. {escape(valid)} '
+            f'If the button doesn\'t work, paste this into your browser:<br>'
+            f'<a href="{escape(url)}" style="color:{BERRY};word-break:break-all">{escape(url)}</a></p>')
+    return layout(heading, body, intro)

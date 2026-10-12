@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
-<title>Mia Admin</title>
+<title>Mia dashboard</title>
 <link rel="icon" href="/static/brand/icon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,500&family=Figtree:wght@400;500;600;700&display=swap">
@@ -62,7 +62,12 @@
   .link-box { display: flex; gap: 8px; margin-top: 10px; }
   .link-box input { font-family: var(--mono); font-size: 13px; }
   .hidden { display: none !important; }
-  @media (max-width: 600px) { header { flex-wrap: wrap; } }
+  body.owner .admin-only { display: none !important; }
+  @media (max-width: 600px) {
+    header { flex-wrap: wrap; row-gap: 8px; }
+    header .who { margin-left: auto; max-width: 45vw; }
+    nav { order: 3; flex-basis: 100%; overflow-x: auto; }
+  }
   .chat { display: flex; flex-direction: column; gap: 10px; min-height: 40vh; }
   .msg { max-width: 85%; padding: 10px 13px; border-radius: 10px; white-space: pre-wrap; word-break: break-word; }
   .msg.user { align-self: flex-end; background: var(--accent); color: #fff; }
@@ -81,32 +86,91 @@
   .composer textarea { min-height: 70px; font-family: inherit; font-size: 15px; }
   .thumbs { display: flex; gap: 6px; flex-wrap: wrap; }
   .thumbs img { height: 48px; border-radius: 6px; border: 1px solid var(--line); }
+  .who { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
+  .auth { max-width: 400px; padding-top: 10vh; }
+  .auth form > * + * { margin-top: 10px; }
+  .auth .alt { margin-top: 14px; display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .auth a, .linkish { color: var(--accent); cursor: pointer; }
+  .sim { display: flex; flex-direction: column; gap: 8px; min-height: 45vh; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+  .sim .msg { max-width: 80%; }
+  .sim .msg.customer { align-self: flex-end; background: var(--accent); color: #fff; }
+  .sim .msg.mia { align-self: flex-start; background: var(--bg); border: 1px solid var(--line); }
+  .sim .msg.owner { align-self: flex-start; background: #fdf1de; border: 1px solid #f3d39b; }
+  .sim .who-label { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; opacity: .7; margin-bottom: 2px; }
+  .sim .meta { align-self: flex-start; font-size: 12px; color: var(--muted); margin-top: -4px; }
+  .sim .note { align-self: center; font-size: 13px; color: var(--muted); font-style: italic; text-align: center; }
+  .sim .escalation { align-self: stretch; border: 1px solid #f3d39b; background: #fffaf2; border-radius: 10px; padding: 10px 12px; font-size: 14px; }
+  .sim .escalation dl { display: grid; grid-template-columns: max-content 1fr; gap: 3px 12px; margin: 6px 0 0; }
+  .sim .escalation dt { color: var(--muted); }
+  .sim .escalation dd { margin: 0; }
+  .people td { font-size: 14px; }
+  .people .actions { text-align: right; white-space: nowrap; }
+  @media (max-width: 700px) {
+    .people thead { display: none; }
+    .people tr { display: block; border-bottom: 1px solid var(--line); padding: 8px 0; }
+    .people td { display: block; border: 0; padding: 2px 0; }
+    .people .actions { text-align: left; margin-top: 6px; }
+  }
 </style>
 </head>
 <body>
 
 <div id="login" class="hidden">
-  <main style="max-width:380px;padding-top:12vh">
+  <main class="auth">
     <div class="card">
       <div class="mia-lockup" style="margin-bottom:10px"><img src="/static/brand/mark.svg" alt=""><span class="mia-wordmark">mia</span></div>
-      <h2>Admin</h2>
-      <p class="muted small">Log in with the ADMIN_SECRET set in Railway.</p>
-      <form id="login-form">
-        <input id="secret" type="password" autocomplete="current-password" placeholder="Admin secret" required>
-        <div class="row" style="margin-top:12px"><button class="btn grow">Log in</button></div>
-      </form>
+
+      <div id="login-pane">
+        <h2>Log in</h2>
+        <form id="login-form">
+          <div><label for="l-email">Email</label><input id="l-email" type="email" autocomplete="username" required></div>
+          <div><label for="l-password">Password</label><input id="l-password" type="password" autocomplete="current-password" required></div>
+          <div class="row"><button class="btn grow">Log in</button></div>
+        </form>
+        <div class="alt small"><a id="to-forgot">Forgot password?</a><a id="to-secret" class="muted">Use the admin secret</a></div>
+      </div>
+
+      <div id="forgot-pane" class="hidden">
+        <h2>Reset your password</h2>
+        <p class="muted small">Enter your login email and we'll send you a link to choose a new password.</p>
+        <form id="forgot-form">
+          <input id="f-email" type="email" autocomplete="username" placeholder="Email" required>
+          <div class="row"><button class="btn grow">Email me a link</button></div>
+        </form>
+        <p id="forgot-sent" class="small hidden">If that email has a login, a reset link is on its way. It works for 24 hours.</p>
+        <div class="alt small"><a class="to-login">Back to log in</a></div>
+      </div>
+
+      <div id="secret-pane" class="hidden">
+        <h2>Admin secret</h2>
+        <p class="muted small">For the operator: log in with the ADMIN_SECRET set in Railway.</p>
+        <form id="secret-form">
+          <input id="secret" type="password" autocomplete="off" placeholder="Admin secret" required>
+          <div class="row"><button class="btn grow">Log in</button></div>
+        </form>
+        <div class="alt small"><a class="to-login">Back to log in</a></div>
+      </div>
+
+      <div id="password-pane" class="hidden">
+        <h2 id="pw-title">Choose a password</h2>
+        <p class="muted small" id="pw-intro"></p>
+        <form id="password-form">
+          <input type="email" id="pw-email" autocomplete="username" hidden>
+          <div><label for="pw-new">New password (at least 10 characters)</label><input id="pw-new" type="password" autocomplete="new-password" minlength="10" required></div>
+          <div><label for="pw-again">Type it again</label><input id="pw-again" type="password" autocomplete="new-password" minlength="10" required></div>
+          <div class="row"><button class="btn grow">Save password and log in</button></div>
+        </form>
+        <div class="alt small"><a class="to-login">Back to log in</a></div>
+      </div>
     </div>
   </main>
 </div>
 
 <div id="app" class="hidden">
   <header>
-    <h1><img src="/static/brand/mark.svg" alt=""><span class="mia-wordmark">mia</span>Admin</h1>
-    <nav>
-      <button data-view="businesses" class="on">Businesses</button>
-      <button data-view="assistant">Assistant</button>
-      <button data-view="logs">Logs</button>
-    </nav>
+    <h1><img src="/static/brand/mark.svg" alt=""><span class="mia-wordmark">mia</span><span id="h-label">Admin</span></h1>
+    <nav id="nav"></nav>
+    <span class="who" id="who"></span>
     <button class="btn secondary" id="logout">Log out</button>
   </header>
 
@@ -115,9 +179,9 @@
     <section id="view-businesses">
       <div class="row" style="margin-bottom:14px">
         <h2 class="grow">Businesses</h2>
-        <button class="btn" id="new-biz">New business</button>
+        <button class="btn admin-only" id="new-biz">New business</button>
       </div>
-      <div id="email-warning" class="card hidden small" style="border-color:#f3d39b">
+      <div id="email-warning" class="card hidden small admin-only" style="border-color:#f3d39b">
         Email isn't configured on the server (RESEND_API_KEY / SUMMARY_FROM_EMAIL), so summaries and emailed links won't send.
       </div>
       <div id="biz-list"></div>
@@ -125,10 +189,11 @@
 
     <!-- One business -->
     <section id="view-business" class="hidden">
-      <button class="btn secondary small" id="back">← All businesses</button>
+      <button class="btn secondary small admin-only" id="back">← All businesses</button>
       <div class="row" style="margin-top:14px">
         <div class="grow"><h2 id="b-name"></h2><div class="muted small" id="b-sub"></div></div>
-        <span id="b-source"></span>
+        <span id="b-source" class="admin-only"></span>
+        <button class="btn secondary" id="b-simulate">Try Mia's replies</button>
       </div>
       <div class="tabs">
         <button data-tab="overview" class="on">Overview</button>
@@ -143,7 +208,7 @@
           <h3>Instagram</h3>
           <div id="b-accounts"></div>
         </div>
-        <div class="card">
+        <div class="card admin-only">
           <h3>Connect link</h3>
           <p class="muted small" style="margin-top:0">A one-time link the owner opens to connect their Instagram. It expires in 7 days. Until Meta app review passes, add their Instagram as a tester in the Meta dashboard first.</p>
           <div class="row">
@@ -161,7 +226,7 @@
           <div class="muted small" id="b-summary-info"></div>
           <div class="row" style="margin-top:10px">
             <button class="btn secondary" id="preview-summary">Preview</button>
-            <button class="btn" id="send-summary">Send now</button>
+            <button class="btn admin-only" id="send-summary">Send now</button>
           </div>
           <pre id="summary-preview" class="hidden"></pre>
         </div>
@@ -170,7 +235,7 @@
           <p class="muted small" style="margin-top:0">Every change saved in the panel or applied from the assistant. Restoring a version saves it as a new change, so nothing is lost.</p>
           <div id="b-versions" class="small"></div>
         </div>
-        <div class="card hidden" id="revert-card">
+        <div class="card hidden admin-only" id="revert-card">
           <h3>Edited in the panel</h3>
           <p class="muted small" style="margin-top:0">This business's settings are saved in the database, so changes to its folder in the repo are ignored. Discarding the panel edits makes it follow the repo folder again.</p>
           <button class="btn danger" id="revert">Discard panel edits</button>
@@ -228,14 +293,14 @@
       </div>
     </section>
 
-    <!-- Logs -->
+    <!-- Assistant -->
     <section id="view-assistant" class="hidden">
       <div class="row" style="margin-bottom:12px">
         <h2 class="grow">Assistant</h2>
         <select id="as-business" style="width:auto"></select>
         <button class="btn secondary" id="as-new">New chat</button>
       </div>
-      <p class="muted small" style="margin-top:0">Ask for changes to a business's settings, tone, rules or facts in plain words, e.g. “update Glam by Dang's lash prices from this screenshot”. You can paste text or screenshots, or give a web page to read. Nothing changes until you apply a proposal.</p>
+      <p class="muted small" style="margin-top:0" id="as-intro">Ask for changes to a business's settings, tone, rules or facts in plain words, e.g. “update Glam by Dang's lash prices from this screenshot”. You can paste text or screenshots, or give a web page to read. Nothing changes until you apply a proposal.</p>
       <div class="chat" id="as-chat"></div>
       <div class="composer card">
         <textarea id="as-input" placeholder="What should change?"></textarea>
@@ -245,6 +310,56 @@
           <span class="grow muted small">Enter to send, Shift+Enter for a new line</span>
           <button class="btn" id="as-send">Send</button>
         </div>
+      </div>
+    </section>
+
+    <!-- Simulator -->
+    <section id="view-simulator" class="hidden">
+      <div class="row" style="margin-bottom:12px">
+        <h2 class="grow">Simulator</h2>
+        <select id="sim-business" style="width:auto"></select>
+        <button class="btn secondary" id="sim-new">New conversation</button>
+      </div>
+      <p class="muted small" style="margin-top:0">Write as a customer and see how Mia would answer, using the business's current settings. Nothing is sent on Instagram or added to the daily summary.</p>
+      <div class="sim" id="sim-chat"></div>
+      <div class="card composer">
+        <form id="sim-form" class="row">
+          <input id="sim-input" class="grow" style="width:auto" placeholder="Message from a customer" autocomplete="off" maxlength="2000">
+          <button class="btn" id="sim-send">Send</button>
+        </form>
+        <form id="sim-owner-form" class="row" style="margin-top:8px">
+          <input id="sim-owner-input" class="grow" style="width:auto" placeholder="Reply yourself, as the owner" autocomplete="off">
+          <button class="btn secondary">Reply as owner</button>
+        </form>
+        <p class="muted small" style="margin:8px 0 0" id="sim-owner-note">On Instagram, once you reply to a customer yourself, Mia stays out of that conversation for a while. The simulator does the same.</p>
+      </div>
+    </section>
+
+    <!-- People -->
+    <section id="view-people" class="hidden">
+      <div class="row" style="margin-bottom:12px">
+        <h2 class="grow">People</h2>
+      </div>
+      <div id="people-email-warning" class="card hidden small" style="border-color:#f3d39b">
+        Email isn't configured on the server, so setup and reset links won't be emailed. Copy them from here instead.
+      </div>
+      <div class="card">
+        <h3>Add a person</h3>
+        <form id="add-person" class="grid">
+          <div><label for="p-email">Email</label><input id="p-email" type="email" required></div>
+          <div><label for="p-role">Role</label><select id="p-role"><option value="owner">Business owner</option><option value="admin">Admin (every business)</option></select></div>
+          <div id="p-business-wrap"><label for="p-business">Business</label><select id="p-business"></select></div>
+          <div style="align-self:end">
+            <label class="row small" style="gap:6px;margin-bottom:8px"><input type="checkbox" id="p-send" checked style="width:auto"> Email them a link to set their password</label>
+            <button class="btn">Add person</button>
+          </div>
+        </form>
+      </div>
+      <div class="card">
+        <table class="people">
+          <thead><tr><th>Email</th><th>Access</th><th>Status</th><th>Last login</th><th></th></tr></thead>
+          <tbody id="people-list"></tbody>
+        </table>
       </div>
     </section>
 
@@ -280,6 +395,15 @@
   </div>
 </div>
 
+<div class="modal" id="link-modal">
+  <div class="card">
+    <h3 id="lm-title">Password link</h3>
+    <p class="small" id="lm-note" style="margin-top:0"></p>
+    <div class="link-box"><input id="lm-url" readonly><button class="btn secondary" id="lm-copy">Copy</button></div>
+    <div class="row" style="margin-top:14px;justify-content:flex-end"><button class="btn" id="lm-close">Done</button></div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -290,6 +414,9 @@ let current = null;      // the open business (overview + files)
 let cfg = null;          // its parsed business.json
 let dirty = false;
 let businesses = [];
+let me = null;           // the logged-in person
+let myBusinessName = "";
+const isAdmin = () => me?.role === "admin";
 
 function toast(msg, bad = false) {
   const t = $("#toast");
@@ -303,7 +430,8 @@ async function api(path, opts = {}) {
     headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
-  if (res.status === 403 && path !== "/admin/api/login") { showLogin(); throw new Error("Please log in again"); }
+  const authPath = path.startsWith("/admin/api/login") || path.startsWith("/admin/api/password");
+  if (res.status === 403 && !authPath) { showLogin(); throw new Error("Please log in again"); }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.detail || `Request failed (${res.status})`);
   return data;
@@ -311,37 +439,124 @@ async function api(path, opts = {}) {
 
 function esc(s) { const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML; }
 
-function showLogin() { $("#app").classList.add("hidden"); $("#login").classList.remove("hidden"); $("#secret").focus(); }
+// --- Logging in ---
+function showLogin(pane = "login") {
+  $("#app").classList.add("hidden"); $("#login").classList.remove("hidden");
+  for (const p of ["login", "forgot", "secret", "password"]) $(`#${p}-pane`).classList.toggle("hidden", p !== pane);
+  $({ login: "#l-email", forgot: "#f-email", secret: "#secret", password: "#pw-new" }[pane])?.focus();
+}
 function showApp() { $("#login").classList.add("hidden"); $("#app").classList.remove("hidden"); }
 
+async function enter() {
+  const r = await api("/admin/api/session");
+  if (!r.user) { showLogin(); return; }
+  me = r.user; myBusinessName = r.business_name || "";
+  buildNav(); showApp(); route();
+}
+async function logIn(body) {
+  try { await api("/admin/api/login", { method: "POST", body }); await enter(); }
+  catch (err) { toast(err.message, true); }
+}
 $("#login-form").onsubmit = async (e) => {
   e.preventDefault();
-  try { await api("/admin/api/login", { method: "POST", body: { secret: $("#secret").value } }); $("#secret").value = ""; showApp(); route(); }
+  await logIn({ email: $("#l-email").value, password: $("#l-password").value });
+  $("#l-password").value = "";
+};
+$("#secret-form").onsubmit = async (e) => {
+  e.preventDefault();
+  await logIn({ secret: $("#secret").value });
+  $("#secret").value = "";
+};
+$("#to-forgot").onclick = () => { $("#f-email").value = $("#l-email").value; $("#forgot-sent").classList.add("hidden"); showLogin("forgot"); };
+$("#to-secret").onclick = () => showLogin("secret");
+$$(".to-login").forEach(a => a.onclick = () => showLogin());
+$("#forgot-form").onsubmit = async (e) => {
+  e.preventDefault();
+  try { await api("/admin/api/password/forgot", { method: "POST", body: { email: $("#f-email").value } }); $("#forgot-sent").classList.remove("hidden"); }
   catch (err) { toast(err.message, true); }
 };
-$("#logout").onclick = async () => { await api("/admin/api/logout", { method: "POST" }); showLogin(); };
+
+let pwToken = "";
+async function openPasswordPage(token) {
+  pwToken = token;
+  history.replaceState(null, "", location.pathname);   // keep the token out of the address bar
+  $("#password-form").classList.remove("hidden");
+  $("#pw-title").textContent = "Choose a password"; $("#pw-intro").textContent = "Checking your link…";
+  showLogin("password");
+  try {
+    const r = await api(`/admin/api/password/${encodeURIComponent(token)}`);
+    $("#pw-title").textContent = r.setting_up ? "Set up your login" : "Choose a new password";
+    $("#pw-intro").textContent = `Your login email is ${r.email}.`;
+    $("#pw-email").value = r.email;
+    $("#pw-new").focus();
+  } catch (err) {
+    $("#pw-title").textContent = "This link doesn't work";
+    $("#pw-intro").textContent = err.message;
+    $("#password-form").classList.add("hidden");
+  }
+}
+$("#password-form").onsubmit = async (e) => {
+  e.preventDefault();
+  if ($("#pw-new").value !== $("#pw-again").value) { toast("The two passwords don't match", true); return; }
+  try {
+    await api("/admin/api/password", { method: "POST", body: { token: pwToken, password: $("#pw-new").value } });
+    $("#pw-new").value = $("#pw-again").value = ""; pwToken = "";
+    toast("Password saved. You're logged in.");
+    await enter();
+  } catch (err) { toast(err.message, true); }
+};
+
+$("#logout").onclick = async () => {
+  try { await api("/admin/api/logout", { method: "POST" }); } catch {}
+  me = null; businesses = []; current = null; dirty = false;
+  chatId = null; try { sessionStorage.removeItem("mia-chat"); } catch {}
+  $("#as-chat").innerHTML = ""; resetSim("");
+  stopLogs(); history.replaceState(null, "", location.pathname);
+  showLogin();
+};
 
 // --- Navigation ---
+const VIEWS = ["businesses", "business", "assistant", "simulator", "people", "logs"];
+function buildNav() {
+  const items = isAdmin()
+    ? [["businesses", "Businesses"], ["assistant", "Assistant"], ["simulator", "Simulator"], ["people", "People"], ["logs", "Logs"]]
+    : [["businesses", "My business"], ["assistant", "Assistant"], ["simulator", "Simulator"]];
+  $("#nav").innerHTML = items.map(([v, label]) => `<button data-view="${v}">${label}</button>`).join("");
+  $$("#nav button").forEach(b => b.onclick = () => go(b.dataset.view === "businesses" ? "#" : "#" + b.dataset.view));
+  $("#who").textContent = me.email;
+  $("#h-label").textContent = isAdmin() ? "Admin" : myBusinessName;
+  document.body.classList.toggle("owner", !isAdmin());
+}
 function show(view) {
-  for (const v of ["businesses", "business", "assistant", "logs"]) $(`#view-${v}`).classList.toggle("hidden", v !== view);
-  $$("nav button").forEach(b => b.classList.toggle("on", b.dataset.view === (view === "business" ? "businesses" : view)));
+  for (const v of VIEWS) $(`#view-${v}`).classList.toggle("hidden", v !== view);
+  $$("#nav button").forEach(b => b.classList.toggle("on", b.dataset.view === (view === "business" ? "businesses" : view)));
   if (view === "logs") startLogs(); else stopLogs();
 }
-$$("nav button").forEach(b => b.onclick = () => go(b.dataset.view === "businesses" ? "#" : "#" + b.dataset.view));
 function go(hash) {
   if (dirty && !confirm("Discard unsaved changes?")) return;
   dirty = false;
   if (location.hash === hash || (hash === "#" && !location.hash)) route(); else location.hash = hash;
 }
-window.onhashchange = () => route();
+window.onhashchange = () => {
+  if (location.hash.startsWith("#password=")) openPasswordPage(location.hash.slice(10));
+  else if (me) route();
+};
 function route() {
   const h = location.hash;
-  if (h === "#logs") show("logs");
+  if (h === "#logs" && isAdmin()) show("logs");
+  else if (h === "#people" && isAdmin()) openPeople();
   else if (h === "#assistant") openAssistant();
+  else if (h === "#simulator" || h.startsWith("#simulator/")) openSimulator(decodeURIComponent(h.slice(11)));
   else if (h.startsWith("#b/")) openBusiness(decodeURIComponent(h.slice(3)));
+  else if (!isAdmin()) openBusiness(me.business_slug);
   else { show("businesses"); loadBusinesses(); }
 }
+async function ensureBusinesses() {
+  if (!businesses.length) businesses = (await api("/admin/api/businesses")).businesses;
+  return businesses;
+}
 $("#back").onclick = () => go("#");
+$("#b-simulate").onclick = () => go("#simulator/" + encodeURIComponent(current.slug));
 
 // --- Business list ---
 function accountPill(b) {
@@ -403,17 +618,17 @@ async function openBusiness(slug) {
   catch (err) { toast(err.message, true); return; }
   dirty = false;
   $("#b-name").textContent = current.name;
-  $("#b-sub").textContent = current.error ? current.error : `${current.slug} · ${current.owner_name} · ${current.timezone}`;
   $("#b-source").innerHTML = current.source === "repo" ? `<span class="pill">From repo folder</span>`
     : current.has_repo_folder ? `<span class="pill">Edited in panel</span>` : `<span class="pill">Created in panel</span>`;
   $("#revert-card").classList.toggle("hidden", !(current.source === "panel" && current.has_repo_folder));
   $("#b-accounts").innerHTML = current.accounts?.length
     ? current.accounts.map(a => `<div class="row"><span class="pill ok">@${esc(a.username || "unknown")}</span>
         <span class="muted small">account ${esc(a.account_id)}${a.token_expires_at ? " · login renews automatically, current one valid until " + new Date(a.token_expires_at * 1000).toLocaleDateString() : ""}</span></div>`).join("")
-    : `<span class="muted">Not connected yet. Create a connect link below and send it to the owner.</span>`;
+    : `<span class="muted">${isAdmin() ? "Not connected yet. Create a connect link below and send it to the owner." : "Not connected yet. Ask Devon for your connect link."}</span>`;
   $("#b-summary-info").innerHTML = current.summary_email
     ? `Goes to <strong>${esc(current.summary_email)}</strong> daily at ${current.summary_hour}:00 (${esc(current.timezone)}). ${current.pending_conversations} conversation${current.pending_conversations === 1 ? "" : "s"} waiting.`
     : `No summary email set. Add one under Settings.`;
+  $("#b-sub").textContent = current.error ? current.error : isAdmin() ? `${current.slug} · ${current.owner_name} · ${current.timezone}` : current.timezone;
   $("#invite-result").classList.add("hidden");
   $("#summary-preview").classList.add("hidden");
   $("#invite-email").value = "";
@@ -585,10 +800,15 @@ async function decide(id, action) {
 }
 async function openAssistant() {
   show("assistant");
-  if (!businesses.length) { try { businesses = (await api("/admin/api/businesses")).businesses; } catch {} }
+  try { await ensureBusinesses(); } catch {}
   const sel = $("#as-business"), keep = sel.value || current?.slug || "";
-  sel.innerHTML = `<option value="">Any business</option>` + businesses.map(b => `<option value="${esc(b.slug)}">${esc(b.name)}</option>`).join("");
+  sel.innerHTML = (isAdmin() ? `<option value="">Any business</option>` : "") + businesses.map(b => `<option value="${esc(b.slug)}">${esc(b.name)}</option>`).join("");
   sel.value = keep;
+  if (sel.selectedIndex < 0) sel.selectedIndex = 0;
+  sel.classList.toggle("hidden", !isAdmin());
+  $("#as-intro").textContent = isAdmin()
+    ? "Ask for changes to a business's settings, tone, rules or facts in plain words, e.g. “update Glam by Dang's lash prices from this screenshot”. You can paste text or screenshots, or give a web page to read. Nothing changes until you apply a proposal."
+    : "Ask for changes to your business's settings, tone, rules or facts in plain words, e.g. “update my lash prices from this screenshot” or “we're closed on Mondays now”. You can paste text or screenshots, or give a web page to read. Nothing changes until you apply a proposal.";
   if (chatId && !$("#as-chat").children.length) {
     try {
       const r = await api(`/admin/api/assistant/${chatId}`);
@@ -647,6 +867,179 @@ async function sendChat() {
   sending = false; $("#as-send").disabled = false; $("#as-input").focus();
 }
 
+// --- Simulator ---
+const CATEGORY_LABELS = { greeting: "Greeting", faq: "Question", thankyou: "Thank you", booking_intent: "Ready to book",
+                          complaint: "Complaint", escalate: "Needs the owner" };
+let sim = { slug: "", history: [], takeover: false, busy: false };
+
+function simAdd(cls, html) {
+  const el = document.createElement("div");
+  el.className = cls; el.innerHTML = html;
+  $("#sim-chat").appendChild(el);
+  el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  return el;
+}
+function simBubble(who, text) {
+  const label = { customer: "Customer", mia: "Mia", owner: "You, as the owner" }[who];
+  return simAdd(`msg ${who}`, `<div class="who-label">${label}</div>${esc(text)}`);
+}
+function simNote(text) { return simAdd("note", esc(text)); }
+function resetSim(slug) {
+  sim = { slug, history: [], takeover: false, busy: false };
+  $("#sim-send").disabled = false;
+  const name = (businesses.find(b => b.slug === slug) || {}).name;
+  $("#sim-chat").innerHTML = "";
+  if (slug) simNote(`New conversation with ${name || slug}. Write something a customer might send.`);
+}
+async function openSimulator(slug) {
+  show("simulator");
+  try { await ensureBusinesses(); } catch (err) { toast(err.message, true); }
+  const usable = businesses.filter(b => !b.error);
+  const sel = $("#sim-business");
+  sel.innerHTML = usable.map(b => `<option value="${esc(b.slug)}">${esc(b.name)}</option>`).join("");
+  sel.classList.toggle("hidden", !isAdmin());
+  const want = [slug, sim.slug, current?.slug, usable[0]?.slug].find(x => x && usable.some(b => b.slug === x)) || "";
+  if (want !== sim.slug || !$("#sim-chat").children.length) resetSim(want);
+  sel.value = sim.slug;
+  $("#sim-input").focus();
+}
+$("#sim-business").onchange = (e) => resetSim(e.target.value);
+$("#sim-new").onclick = () => resetSim(sim.slug);
+
+function renderSim(r) {
+  const confidence = r.classification?.confidence;
+  const meta = [CATEGORY_LABELS[r.category] || r.category, confidence && `${confidence} confidence`].filter(Boolean).join(" · ");
+  if (r.action === "silent") {
+    simNote(r.category === "greeting"
+      ? "Mia waits: it's just a greeting, so she holds off until the customer says what they need."
+      : "Mia stays quiet on this message.");
+    return;
+  }
+  for (const m of r.messages || []) { simBubble("mia", m); sim.history.push({ role: "assistant", content: m }); }
+  if (meta) simAdd("meta", esc(meta));
+  if (r.action === "escalate") {
+    const e = r.escalation || {};
+    simAdd("escalation", `<strong>Handed to the owner.</strong> On Instagram this conversation would be flagged for you in the daily summary.
+      <dl>${[["Urgency", e.urgency], ["Summary", e.summary], ["Suggested action", e.suggested_action], ["Why", e.reason_escalated]]
+        .filter(([, v]) => v).map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("")}</dl>`);
+  }
+}
+$("#sim-form").onsubmit = async (e) => {
+  e.preventDefault();
+  const text = $("#sim-input").value.trim();
+  if (!text || sim.busy || !sim.slug) return;
+  $("#sim-input").value = "";
+  simBubble("customer", text);
+  if (sim.takeover) {
+    sim.history.push({ role: "user", content: text });
+    const note = simAdd("note", `Mia stays quiet because you're handling this conversation. <a class="linkish">Let Mia answer again</a>`);
+    $("a", note).onclick = () => { sim.takeover = false; simNote("Mia will answer the next message."); };
+    return;
+  }
+  const slug = sim.slug, history = sim.history.slice();
+  sim.busy = true; $("#sim-send").disabled = true;
+  const typing = simNote("Mia is writing…");
+  try {
+    const r = await api(`/admin/api/businesses/${encodeURIComponent(slug)}/simulate`, { method: "POST",
+      body: { message: text, history, new_conversation: history.length === 0 } });
+    if (slug !== sim.slug) return;   // switched business or started over meanwhile
+    typing.remove();
+    sim.history.push({ role: "user", content: text });
+    renderSim(r);
+  } catch (err) {
+    typing.remove(); simNote("Couldn't get a reply: " + err.message);
+  } finally {
+    if (slug === sim.slug) { sim.busy = false; $("#sim-send").disabled = false; }
+    $("#sim-input").focus();
+  }
+};
+$("#sim-owner-form").onsubmit = (e) => {
+  e.preventDefault();
+  const text = $("#sim-owner-input").value.trim();
+  if (!text || !sim.slug) return;
+  $("#sim-owner-input").value = "";
+  simBubble("owner", text);
+  sim.history.push({ role: "assistant", content: text });
+  if (!sim.takeover) { sim.takeover = true; simNote("You replied, so Mia steps back from this conversation."); }
+};
+
+// --- People ---
+let people = [];
+let myId = null;
+async function openPeople() {
+  show("people");
+  try {
+    const [u] = await Promise.all([api("/admin/api/users"), ensureBusinesses()]);
+    people = u.users; myId = u.me;
+    $("#people-email-warning").classList.toggle("hidden", u.email_configured);
+    $("#p-business").innerHTML = businesses.filter(b => !b.error).map(b => `<option value="${esc(b.slug)}">${esc(b.name)}</option>`).join("");
+    renderPeople();
+  } catch (err) { toast(err.message, true); }
+}
+function renderPeople() {
+  const names = Object.fromEntries(businesses.map(b => [b.slug, b.name]));
+  $("#people-list").innerHTML = people.map(p => {
+    const access = p.role === "admin" ? "Admin, every business" : `Owner of ${esc(names[p.business_slug] || p.business_slug)}`;
+    const status = !p.active ? `<span class="pill bad">Access off</span>`
+      : p.has_password ? `<span class="pill ok">Active</span>` : `<span class="pill warn">Password not set</span>`;
+    const last = p.last_login_at ? new Date(p.last_login_at * 1000).toLocaleString() : "Never";
+    const self = p.id === myId;
+    return `<tr>
+      <td><strong>${esc(p.email)}</strong>${self ? ` <span class="muted small">(you)</span>` : ""}</td>
+      <td>${access}</td><td>${status}</td><td class="muted small">${esc(last)}</td>
+      <td class="actions">${p.active ? `<button class="btn secondary small" data-link="${p.id}">${p.has_password ? "Send reset link" : "Send setup link"}</button>` : ""}
+        ${self ? "" : p.active ? `<button class="btn danger small" data-access="${p.id}" data-on="0">Turn off access</button>`
+                               : `<button class="btn secondary small" data-access="${p.id}" data-on="1">Turn access back on</button>`}</td>
+    </tr>`;
+  }).join("");
+  $$("[data-link]").forEach(b => b.onclick = () => sendPasswordLink(+b.dataset.link, b));
+  $$("[data-access]").forEach(b => b.onclick = () => setAccess(+b.dataset.access, b.dataset.on === "1", b));
+}
+function showLink(person, link) {
+  $("#lm-title").textContent = link.kind === "setup" ? "Setup link" : "Password reset link";
+  const expires = new Date(link.expires_at).toLocaleString();
+  $("#lm-note").textContent = (link.emailed === true ? `Emailed to ${person}. ` : link.emailed === false ? `Couldn't email ${person}, so send them this link yourself. ` : "")
+    + `It works once and expires ${expires}.`;
+  $("#lm-url").value = link.url;
+  $("#link-modal").style.display = "flex";
+}
+$("#lm-close").onclick = () => $("#link-modal").style.display = "none";
+$("#lm-copy").onclick = async () => {
+  try { await navigator.clipboard.writeText($("#lm-url").value); toast("Link copied"); }
+  catch { $("#lm-url").select(); }
+};
+async function sendPasswordLink(id, btn) {
+  const p = people.find(x => x.id === id);
+  const what = p.has_password ? "a password reset link" : "a setup link";
+  if (!confirm(`Email ${what} to ${p.email}? ${p.has_password ? "Their current password keeps working until they choose a new one." : ""}`)) return;
+  btn.disabled = true;
+  try { showLink(p.email, await api(`/admin/api/users/${id}/password-link`, { method: "POST", body: { send_email: true } })); }
+  catch (err) { toast(err.message, true); }
+  btn.disabled = false;
+}
+async function setAccess(id, on, btn) {
+  const p = people.find(x => x.id === id);
+  if (!on && !confirm(`Turn off access for ${p.email}? They're logged out right away and can't log in until you turn it back on.`)) return;
+  btn.disabled = true;
+  try {
+    await api(`/admin/api/users/${id}/access`, { method: "POST", body: { active: on } });
+    toast(on ? `${p.email} can log in again.${p.has_password ? "" : " Send them a setup link next."}` : `Access turned off for ${p.email}.`);
+    openPeople();
+  } catch (err) { toast(err.message, true); btn.disabled = false; }
+}
+$("#p-role").onchange = () => $("#p-business-wrap").classList.toggle("hidden", $("#p-role").value !== "owner");
+$("#add-person").onsubmit = async (e) => {
+  e.preventDefault();
+  const email = $("#p-email").value.trim(), role = $("#p-role").value;
+  try {
+    const r = await api("/admin/api/users", { method: "POST", body: {
+      email, role, business_slug: role === "owner" ? $("#p-business").value : "", send_link: $("#p-send").checked } });
+    $("#p-email").value = "";
+    if (r.link) showLink(r.user.email, r.link); else toast(`${r.user.email} added. Send them a setup link when you're ready.`);
+    openPeople();
+  } catch (err) { toast(err.message, true); }
+};
+
 // --- Logs ---
 let logTimer = null;
 async function loadLogs() {
@@ -667,7 +1060,8 @@ $("#log-level").onchange = () => loadLogs();
 $("#log-live").onchange = () => startLogs();
 
 // --- Start ---
-api("/admin/api/session").then(r => { if (r.admin) { showApp(); route(); } else showLogin(); }).catch(showLogin);
+if (location.hash.startsWith("#password=")) openPasswordPage(location.hash.slice(10));
+else enter().catch(() => showLogin());
 </script>
 </body>
 </html>
