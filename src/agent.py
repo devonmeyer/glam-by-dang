@@ -10,6 +10,10 @@ logger = logging.getLogger(__name__)
 client = Anthropic()
 
 MODEL = "claude-sonnet-5-5"
+# At low effort this model skips thinking on most messages and follows the prompt's brevity
+# rules so literally that replies came out clipped and dropped the booking link. Medium gives
+# it room to weigh the classification, link, and policy rules together before replying.
+EFFORT = "medium"
 MAX_HISTORY = 20
 
 
@@ -124,8 +128,8 @@ def process_message(
         response = client.messages.create(
             model=MODEL,
             # Room for adaptive thinking (on by default) plus the JSON reply
-            max_tokens=4096,
-            output_config={"effort": "low"},
+            max_tokens=8192,
+            output_config={"effort": EFFORT},
             system=system,
             messages=messages,
         )

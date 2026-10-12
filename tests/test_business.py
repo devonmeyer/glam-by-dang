@@ -26,6 +26,14 @@ def test_kha_prompt_has_no_unfilled_placeholders():
     assert "'Escalated to Kha'" in prompt
 
 
+
+def test_prompt_routes_availability_questions_to_the_booking_link():
+    prompt = default_business().system_prompt
+    assert "## Availability questions" in prompt
+    assert "asking about availability or openings" in prompt
+    # The shared guidance must land before the business rules it explains
+    assert prompt.index("## How to read the business's rules") < prompt.index("## Reply rules")
+
 def test_hours():
     kha = default_business()
     tz = kha.tz
