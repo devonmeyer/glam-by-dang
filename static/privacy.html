@@ -3,148 +3,74 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Privacy Policy — Glam by Dang</title>
+  <title>Privacy Policy · Mia</title>
   <link rel="icon" href="/static/brand/icon.svg" type="image/svg+xml" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,500&family=Figtree:wght@400;500;600;700&display=swap" />
   <link rel="stylesheet" href="/static/brand/brand.css" />
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-
-    body {
-      font-family: var(--mia-body);
-      background: var(--mia-blush);
-      color: var(--mia-cocoa);
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 48px 16px 60px;
-    }
-
-    header {
-      text-align: center;
-      margin-bottom: 28px;
-    }
-    header h1 { font-family: var(--mia-display); font-size: 2.1rem; font-weight: 500; letter-spacing: -0.01em; line-height: 1.15; }
-    header p  { font-size: 0.8rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--mia-soft); margin-top: 6px; }
-
-    .container {
-      width: 100%;
-      max-width: 700px;
-      background: #fff;
-      border: 1px solid var(--mia-line);
-      border-radius: 12px;
-      padding: 32px 36px;
-      display: flex;
-      flex-direction: column;
-      gap: 24px;
-    }
-    @media (max-width: 520px) { .container { padding: 24px 20px; } }
-
-    h2 {
-      font-family: var(--mia-display);
-      font-size: 1.25rem;
-      font-weight: 500;
-      color: var(--mia-cocoa);
-      margin-bottom: 8px;
-    }
-
-    p, li {
-      font-size: 0.95rem;
-      line-height: 1.7;
-      color: #4A3733;
-    }
-
-    ul {
-      padding-left: 20px;
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
-
-    .updated {
-      font-size: 0.78rem;
-      color: var(--mia-soft);
-      text-align: right;
-    }
-
-    a { color: var(--mia-berry); text-underline-offset: 2px; }
-
-    footer { margin-top: 28px; }
-    footer .mia-lockup img { width: 24px; height: 24px; }
-    footer .mia-lockup span { font-size: 0.85rem; color: var(--mia-soft); }
-    footer .mia-wordmark { font-size: 20px !important; color: var(--mia-cocoa) !important; }
+    .mia-card h2 { margin-top: 10px; }
+    .mia-card ul { padding-left: 20px; display: grid; gap: 4px; }
+    .mia-card p, .mia-card li { color: #4A3733; }
+    .updated { color: var(--mia-soft); font-size: 14px; }
   </style>
 </head>
-<body>
+<body class="mia-page">
+<main class="mia-shell wide">
+  <a class="mia-lockup" href="/"><img src="/static/brand/mark.svg" alt="" /><span class="mia-wordmark">mia</span></a>
+  <div class="mia-card">
+    <h1>Privacy policy</h1>
+    <p class="updated">Last updated: October 11, 2026</p>
 
-  <header>
-    <h1>Glam by Dang</h1>
-    <p>Privacy Policy</p>
-  </header>
+    <p>Mia is an assistant that answers Instagram Direct Messages for small businesses, such as beauty studios, on their behalf. Mia is operated by Devon Meyer ("we"). This policy explains what happens to information when you message a business that uses Mia, and when a business connects its Instagram account to Mia.</p>
 
-  <div class="container">
+    <h2>If you message a business that uses Mia</h2>
+    <p>When you send a Direct Message to a business's Instagram account that is connected to Mia, we receive through Meta's Instagram API:</p>
+    <ul>
+      <li>the text of your messages</li>
+      <li>your Instagram-scoped user ID and, where Instagram provides it, your name or username</li>
+      <li>when each message was sent</li>
+      <li>the recent messages in your conversation with that business, so a reply can follow on from what was already said</li>
+    </ul>
+    <p>We use this only to reply to you on the business's behalf, to hand your conversation to the business's owner when you need a person, and to send the owner a daily summary of conversations.</p>
 
-    <p class="updated">Last updated: May 2025</p>
+    <h2>What we store, and for how long</h2>
+    <ul>
+      <li><strong>Conversation summaries.</strong> After Mia replies, we store a short summary of the conversation, your name or username, and whether it needs the owner's attention. These are kept until they appear in the owner's next daily summary (normally within a day) and are then deleted.</li>
+      <li><strong>Message IDs.</strong> We keep the IDs (not the text) of messages Mia sent, for about a day, so Mia can tell her own messages apart from the owner's.</li>
+      <li><strong>Owner takeovers.</strong> When the owner replies to you personally, we note your Instagram-scoped ID and the time, so Mia stays out of that conversation for a while.</li>
+      <li><strong>Server logs.</strong> Our logs record activity such as when a message arrived and its length, and occasionally an excerpt of a reply when something goes wrong. Logs are kept by our hosting provider for a limited period and are used only to keep Mia working.</li>
+    </ul>
+    <p>We do not store the full text of your messages in our database. We do not sell your information, use it for advertising, or use it to train AI models.</p>
 
-    <section>
-      <h2>Overview</h2>
-      <p>This privacy policy describes how the Glam by Dang Instagram messaging assistant ("the App") handles information it receives while responding to Instagram Direct Messages sent to <strong>@glambydangnyc</strong>.</p>
-    </section>
+    <h2>If you connect your business's Instagram</h2>
+    <p>When a business owner logs in with Instagram to connect their account, we receive and store their Instagram account ID, username, and an access token that lets Mia read and reply to the account's Direct Messages. The token is stored encrypted. We also store the business details the owner gives us (such as services, prices, hours and policies) so Mia can answer accurately, and the email address the daily summary goes to.</p>
 
-    <section>
-      <h2>Information We Receive</h2>
-      <p>When you send a Direct Message to @glambydangnyc, the App may receive:</p>
-      <ul>
-        <li>The text content of your messages</li>
-        <li>Your Instagram-assigned sender ID (a numeric identifier assigned by Meta)</li>
-        <li>The timestamp of your message</li>
-      </ul>
-      <p>We do not receive your Instagram username, profile photo, follower count, or any other profile information.</p>
-    </section>
+    <h2>Who else processes your information</h2>
+    <ul>
+      <li><strong>Meta (Instagram)</strong> delivers messages to and from Mia under <a href="https://privacycenter.instagram.com/policy" target="_blank" rel="noopener">Instagram's privacy policy</a>.</li>
+      <li><strong>Anthropic</strong> provides the AI model that writes Mia's replies. Message content is sent to Anthropic's API to generate each reply. See <a href="https://www.anthropic.com/legal/privacy" target="_blank" rel="noopener">Anthropic's privacy policy</a>.</li>
+      <li><strong>Railway</strong> hosts Mia's servers and database. See <a href="https://railway.com/legal/privacy" target="_blank" rel="noopener">Railway's privacy policy</a>.</li>
+      <li><strong>Resend</strong> delivers the daily summary email to the business owner. See <a href="https://resend.com/legal/privacy-policy" target="_blank" rel="noopener">Resend's privacy policy</a>.</li>
+    </ul>
 
-    <section>
-      <h2>How We Use This Information</h2>
-      <p>Message content is used solely to generate a relevant, automated reply on behalf of Glam by Dang. Specifically:</p>
-      <ul>
-        <li>Messages are sent to Anthropic's Claude AI API to generate a response</li>
-        <li>Conversation history is held in memory for up to 24 hours to provide context for follow-up messages, then discarded</li>
-        <li>No message content is written to a database or stored on disk</li>
-      </ul>
-    </section>
+    <h2>Deleting your information</h2>
+    <ul>
+      <li><strong>If you messaged a business:</strong> email us at <a href="mailto:devonmeyer212@gmail.com">devonmeyer212@gmail.com</a> with the business's Instagram handle and your Instagram username, and we will delete any summaries and records about your conversation within 30 days. You can also ask the business directly.</li>
+      <li><strong>If you connected a business:</strong> remove Mia under Instagram Settings &gt; Website permissions &gt; Apps and websites, or request deletion there. Instagram tells us, and we disconnect the account and delete its token and stored conversation summaries. You can also email us.</li>
+    </ul>
 
-    <section>
-      <h2>Third-Party Services</h2>
-      <p>The App uses the following third-party services to operate:</p>
-      <ul>
-        <li><strong>Anthropic</strong> — message content is transmitted to Anthropic's API to generate responses. Anthropic's privacy policy is available at <a href="https://www.anthropic.com/privacy" target="_blank">anthropic.com/privacy</a>.</li>
-        <li><strong>Meta (Instagram)</strong> — messages are received and sent via the Instagram Messaging API under Meta's platform terms.</li>
-        <li><strong>Railway</strong> — the App is hosted on Railway's infrastructure. Railway's privacy policy is available at <a href="https://railway.app/legal/privacy" target="_blank">railway.app/legal/privacy</a>.</li>
-      </ul>
-    </section>
+    <h2>Children</h2>
+    <p>Mia is meant for adult customers of businesses and is not directed at children under 13.</p>
 
-    <section>
-      <h2>Data Retention</h2>
-      <p>Conversation data is held in memory only for the duration of an active session (up to 24 hours of inactivity). It is never written to a database or long-term storage. Server logs may retain IP addresses and request metadata for up to 7 days as part of standard infrastructure logging.</p>
-    </section>
+    <h2>Changes to this policy</h2>
+    <p>If we change this policy, we will update the date above. Significant changes will be shared with connected businesses.</p>
 
-    <section>
-      <h2>Your Rights</h2>
-      <p>You may stop interacting with the assistant at any time by simply not messaging @glambydangnyc. Because no personal data is stored beyond the active session, there is no persistent record to delete. For any privacy-related questions, contact us at <a href="mailto:glambydang@gmail.com">glambydang@gmail.com</a>.</p>
-    </section>
-
-    <section>
-      <h2>Changes to This Policy</h2>
-      <p>We may update this policy from time to time. The "last updated" date at the top of this page will reflect any changes.</p>
-    </section>
-
+    <h2>Contact</h2>
+    <p>Devon Meyer · <a href="mailto:devonmeyer212@gmail.com">devonmeyer212@gmail.com</a></p>
   </div>
-
-  <footer>
-    <span class="mia-lockup"><span>Messages answered by</span><img src="/static/brand/mark.svg" alt="" /><span class="mia-wordmark">mia</span></span>
-  </footer>
-
+  <p class="mia-footer"><a href="/">itsmia.info</a></p>
+</main>
 </body>
 </html>

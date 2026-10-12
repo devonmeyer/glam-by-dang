@@ -150,6 +150,7 @@
             <input id="invite-email" type="email" placeholder="Owner's email (optional, to email the link)" class="grow" style="width:auto">
             <button class="btn" id="make-invite">Create link</button>
           </div>
+          <p class="muted small" style="margin:8px 0 0">For Meta's app reviewers: <a href="#" id="make-reviewer-invite">create a reusable link</a> that works for 30 days.</p>
           <div id="invite-result" class="hidden">
             <div class="link-box"><input id="invite-url" readonly><button class="btn secondary" id="copy-invite">Copy</button></div>
             <div class="muted small" id="invite-note" style="margin-top:6px"></div>
@@ -494,18 +495,21 @@ $("#revert").onclick = async () => {
   catch (err) { toast(err.message, true); }
 };
 
-$("#make-invite").onclick = async () => {
+async function makeInvite(reviewer) {
   const btn = $("#make-invite"); btn.disabled = true;
   try {
     const email = $("#invite-email").value.trim();
-    const r = await api(`/admin/api/businesses/${encodeURIComponent(current.slug)}/invite`, { method: "POST", body: { email } });
+    const r = await api(`/admin/api/businesses/${encodeURIComponent(current.slug)}/invite`, { method: "POST", body: { email, reviewer } });
     $("#invite-url").value = r.url;
-    $("#invite-note").textContent = `Expires ${new Date(r.expires_at).toLocaleString()}.` +
+    $("#invite-note").textContent = (reviewer ? "Reusable reviewer link. " : "") +
+      `Expires ${new Date(r.expires_at).toLocaleString()}.` +
       (email ? (r.emailed ? ` Emailed to ${email}.` : ` Couldn't email it to ${email}; copy it instead.`) : "");
     $("#invite-result").classList.remove("hidden");
   } catch (err) { toast(err.message, true); }
   btn.disabled = false;
-};
+}
+$("#make-invite").onclick = () => makeInvite(false);
+$("#make-reviewer-invite").onclick = (e) => { e.preventDefault(); makeInvite(true); };
 $("#copy-invite").onclick = async () => {
   try { await navigator.clipboard.writeText($("#invite-url").value); toast("Link copied"); }
   catch { $("#invite-url").select(); }

@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mia · Instagram DM assistant for beauty studios</title>
+  <meta name="description" content="Mia answers your studio's Instagram DMs: prices, availability, policies and booking links, and hands anything sensitive to you." />
+  <link rel="icon" href="/static/brand/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/static/brand/icon-192.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,500&family=Figtree:wght@400;500;600;700&display=swap" />
+  <link rel="stylesheet" href="/static/brand/brand.css" />
+  <style>
+    .hero h1 { font-size: 40px; }
+    .steps { counter-reset: step; list-style: none; padding: 0; display: grid; gap: 14px; }
+    .steps li { counter-increment: step; display: grid; grid-template-columns: 32px 1fr; gap: 12px; align-items: start; }
+    .steps li::before { content: counter(step); width: 32px; height: 32px; border-radius: 50%; background: var(--mia-tint); color: var(--mia-berry); font-weight: 700; display: grid; place-items: center; }
+    .steps strong { display: block; }
+    @media (max-width: 520px) { .hero h1 { font-size: 32px; } }
+  </style>
+</head>
+<body class="mia-page">
+<main class="mia-shell wide">
+  <span class="mia-lockup"><img src="/static/brand/mark.svg" alt="" /><span class="mia-wordmark">mia</span></span>
+
+  <div class="mia-card hero">
+    <h1>Your studio's Instagram DMs, answered.</h1>
+    <p>Mia replies to customers' Instagram Direct Messages for beauty studios and small businesses. She answers questions about services, prices, availability and policies from the details you give her, shares your booking link when someone is ready, and steps back the moment you reply yourself.</p>
+    <p>Anything sensitive, like a complaint, a medical question or a refund, goes straight to you, and every morning you get an email summarizing the day's conversations.</p>
+  </div>
+
+  <div class="mia-card">
+    <h2>How it works</h2>
+    <ol class="steps">
+      <li><span><strong>We set Mia up for your business</strong>Your services, prices, hours, policies and tone, so she answers the way you would.</span></li>
+      <li><span><strong>You connect your Instagram</strong>Open your private connect link and choose <em>Continue with Instagram</em>. Mia only gets access to read and reply to your Direct Messages.</span></li>
+      <li><span><strong>Mia answers your DMs</strong>Reply to any customer yourself and she leaves that conversation to you. Disconnect any time from Instagram's settings.</span></li>
+    </ol>
+  </div>
+
+  <div class="mia-card">
+    <h2>Get started</h2>
+    <p>Mia is currently available by invitation. If you've received a connect link, open it to connect your business's Instagram.</p>
+    <p class="mia-muted">Already connected and want to stop? Remove Mia under Instagram Settings &gt; Website permissions &gt; Apps and websites.</p>
+  </div>
+
+  <p class="mia-footer"><a href="/privacy">Privacy policy</a></p>
+</main>
+</body>
+</html>

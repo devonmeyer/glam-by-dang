@@ -214,6 +214,51 @@ def test_admin_delete_data_disconnects_and_clears_history():
     assert server._account_for(FRIEND_ACCOUNT) is None
 
 
+def test_reviewer_link_is_reusable_for_30_days():
+    _reset()
+    r = client.post("/admin/api/login", json={"secret": "admin-pw"})
+    assert r.status_code == 200
+    r = client.post("/admin/api/businesses/lash-lab/invite", json={"reviewer": True})
+    assert r.status_code == 200, r.text
+    invite = parse_qs(urlparse(r.json()["url"]).query)["invite"][0]
+    for _ in range(2):  # a reviewer can connect, disconnect and connect again
+        r = client.get(f"/auth/instagram/callback?code=the-code&state={invite}")
+        assert r.status_code == 200, r.text
+    assert server.store.account_business(FRIEND_ACCOUNT)[1] == "lash-lab"
+    clock = server.store.clock
+    try:
+        server.store.clock = lambda: clock() + 29 * 24 * 3600
+        assert client.get(f"/connect?invite={invite}").status_code == 200
+        server.store.clock = lambda: clock() + 31 * 24 * 3600
+        assert client.get(f"/connect?invite={invite}").status_code == 404
+    finally:
+        server.store.clock = clock
+    client.post("/admin/api/logout")
+
+
+def test_older_databases_get_the_reusable_invite_column():
+    import sqlite3
+    path = os.path.join(_tmp.name, "old.db")
+    old = sqlite3.connect(path)
+    old.executescript("CREATE TABLE invites (token_hash TEXT PRIMARY KEY, business_id INTEGER NOT NULL, "
+                      "created_at REAL NOT NULL, expires_at REAL NOT NULL, used_at REAL, account_id TEXT);"
+                      "INSERT INTO invites VALUES ('h', 1, 0, 9e12, NULL, NULL);")
+    old.close()
+    s = Store(path)
+    biz = s.ensure_business("lash-lab", "Lash Lab")
+    s.create_invite("new", biz, 9e12, reusable=True)
+    s.use_invite("new", "acct")
+    s.use_invite("h", "acct")
+    assert s.open_invite("new") == (biz, "lash-lab") and s.open_invite("h") is None
+
+
+def test_homepage_and_simulator():
+    r = client.get("/")
+    assert r.status_code == 200 and "Instagram DMs, answered" in r.text and "/privacy" in r.text
+    assert "DM Simulator" in client.get("/simulator").text
+    assert "Privacy policy" in client.get("/privacy").text
+
+
 if __name__ == "__main__":
     tests = [v for k, v in list(globals().items()) if k.startswith("test_")]
     for t in tests:
