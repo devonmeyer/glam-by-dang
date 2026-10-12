@@ -134,6 +134,29 @@ def _():
     assert BOOKING_LINK in msgs(r),         "booking link should be present"
 
 
+@test("6b. Availability on a day → reply with booking link, not an escalation")
+def _():
+    r = process_message(
+        "Hi! Does Kha have any availability on Thursday?",
+        [],
+        is_new_conversation=True,
+    )
+    assert r["action"] == "reply",          f"action={r['action']}"
+    assert r["category"] == "booking_intent", f"category={r['category']}"
+    assert BOOKING_LINK in msgs(r),         f"booking link should be present: {msgs(r)[:200]}"
+
+
+@test("6c. Availability mid-conversation → booking link")
+def _():
+    history = [
+        {"role": "user",      "content": "How much is a lash lift?"},
+        {"role": "assistant", "content": "A keratin lash lift is $175, and lash tinting is included."},
+    ]
+    r = process_message("Ok cool, do you have anything this Thursday afternoon?", history, is_new_conversation=False)
+    assert r["action"] == "reply",          f"action={r['action']}"
+    assert BOOKING_LINK in msgs(r),         f"booking link should be present: {msgs(r)[:200]}"
+
+
 @test("7. Complaint → escalated to Kha")
 def _():
     r = process_message(
