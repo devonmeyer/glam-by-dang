@@ -102,7 +102,9 @@ def process_message(
 
     for attempt in range(2):
         system = [
-            {"type": "text", "text": business.system_prompt, "cache_control": {"type": "ephemeral"}},
+            # The business prompt rarely changes, and DMs can be minutes apart, so cache it for an
+            # hour rather than the default 5 minutes. Cached reads cost about a tenth of full price.
+            {"type": "text", "text": business.system_prompt, "cache_control": {"type": "ephemeral", "ttl": "1h"}},
             {"type": "text", "text": date_note},
             {"type": "text", "text": prefix_note},
             {"type": "text", "text": link_context_note},
@@ -158,6 +160,12 @@ def process_message(
                     }
                 else:
                     raise
+
+    usage = response.usage
+    logger.info("Claude usage for %s: %s cached, %s written to cache, %s uncached input, %s output tokens",
+                business.slug, getattr(usage, "cache_read_input_tokens", 0) or 0,
+                getattr(usage, "cache_creation_input_tokens", 0) or 0,
+                usage.input_tokens, usage.output_tokens)
 
     category = raw.get("category", "escalate")
     frustration_level = raw.get("frustration_level", "none")
