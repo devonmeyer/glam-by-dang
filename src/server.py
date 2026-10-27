@@ -68,7 +68,6 @@ recent_logs = RecentLogs()
 logging.getLogger().addHandler(recent_logs)
 
 NEW_CONVERSATION_THRESHOLD = 60 * 60  # 1 hour
-DEBOUNCE_SECONDS = 5
 MAX_MESSAGE_LENGTH = 1000
 MAX_HISTORY = 20
 SESSION_TTL = 24 * 60 * 60  # 24 hours
@@ -413,7 +412,7 @@ async def _handle_instagram_dm(account: Account, sender_id: str, text: str) -> N
 
     async def debounce():
         try:
-            await asyncio.sleep(DEBOUNCE_SECONDS)
+            await asyncio.sleep(account.business.reply_delay_seconds)
         except asyncio.CancelledError:
             return
 
@@ -1203,6 +1202,7 @@ def _business_overview(slug: str) -> dict:
         "has_repo_folder": (business_config.BUSINESSES_DIR / slug / "business.json").is_file(),
         "summary_email": business.summary_email,
         "summary_hour": business.summary_hour,
+        "reply_delay_seconds": business.reply_delay_seconds,
         "timezone": business.timezone,
         "pending_conversations": len(store.conversations(biz_id)),
         "accounts": [{"account_id": a, "username": u, "token_expires_at": e}

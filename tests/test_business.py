@@ -77,6 +77,27 @@ def test_second_business_gets_its_own_prompt():
         assert "Kha Fitzpatrick" not in prompt
 
 
+def test_reply_delay():
+    files = business.business_files("glam-by-dang")
+    assert business.build_business("glam-by-dang", files).reply_delay_seconds == 5
+
+    cfg = json.loads(files["business.json"])
+    cfg.pop("reply_delay_seconds")
+    unset = dict(files, **{"business.json": json.dumps(cfg)})
+    assert business.build_business("x", unset).reply_delay_seconds == business.DEFAULT_REPLY_DELAY_SECONDS
+
+    cfg["reply_delay_seconds"] = 30
+    assert business.build_business("x", dict(files, **{"business.json": json.dumps(cfg)})).reply_delay_seconds == 30
+
+    cfg["reply_delay_seconds"] = 301
+    try:
+        business.build_business("x", dict(files, **{"business.json": json.dumps(cfg)}))
+    except ValueError as e:
+        assert "reply_delay_seconds" in str(e)
+    else:
+        raise AssertionError("expected ValueError")
+
+
 def test_unknown_placeholder_fails_loudly():
     try:
         business._fill("Hi {{nope}}", {"owner": "Kha"})

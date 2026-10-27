@@ -30,7 +30,8 @@ beauty businesses, keep each business's settings up to date. You work inside Mia
 
 Each business has four files that make up everything Mia knows and how she behaves:
 - business.json: names, timezone, city, opening hours, booking_link, review_link, greeting, \
-escalation_reply, out_of_hours_note, cancellation_tiers (min_hours + status), summary_email, summary_hour
+escalation_reply, out_of_hours_note, cancellation_tiers (min_hours + status), summary_email, summary_hour, reply_delay_seconds \
+(seconds Mia waits after a client's last message before replying, 0–300, default 5)
 - about.md: who Mia works for, and her tone
 - rules.md: reply rules, hand-offs, and when to share links
 - context.md: the facts Mia answers from: services, prices, policies, location, FAQs

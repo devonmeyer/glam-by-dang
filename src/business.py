@@ -2,7 +2,8 @@
 
 Each business folder holds:
 - business.json  settings: names, timezone, hours, links, canned replies, cancellation tiers,
-                 and where and when the owner's daily summary goes
+                 where and when the owner's daily summary goes, and how long Mia waits
+                 before replying
 - about.md       who the assistant works for, and its tone
 - rules.md       the business's reply rules and links section
 - context.md     facts and prices the assistant answers from
@@ -30,6 +31,11 @@ STARTER_DIR = Path(__file__).parent / "business_starter"
 DEFAULT_BUSINESS_SLUG = "glam-by-dang"
 FILE_NAMES = ("business.json", "about.md", "rules.md", "context.md")
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+# How long Mia waits after a client's last message before replying, so a client sending
+# several messages in a row isn't interrupted and the owner has a chance to answer first.
+DEFAULT_REPLY_DELAY_SECONDS = 5
+# Waiting messages are held in memory, so a restart during the wait drops them; keep it short.
+MAX_REPLY_DELAY_SECONDS = 300
 
 _PLACEHOLDER = re.compile(r"\{\{(\w+)\}\}")
 
@@ -69,6 +75,7 @@ class Business:
     cancellation_tiers: tuple[CancellationTier, ...]
     summary_email: str
     summary_hour: int
+    reply_delay_seconds: int
     about: str
     rules: str
     context: str
@@ -163,6 +170,9 @@ def build_business(slug: str, files: dict[str, str]) -> Business:
         summary_hour = int(cfg.get("summary_hour", 10))
         if not 0 <= summary_hour <= 23:
             raise ValueError("summary_hour must be between 0 and 23")
+        reply_delay_seconds = int(cfg.get("reply_delay_seconds", DEFAULT_REPLY_DELAY_SECONDS))
+        if not 0 <= reply_delay_seconds <= MAX_REPLY_DELAY_SECONDS:
+            raise ValueError(f"reply_delay_seconds must be between 0 and {MAX_REPLY_DELAY_SECONDS}")
         business = Business(
             slug=slug,
             name=cfg["name"],
@@ -179,6 +189,7 @@ def build_business(slug: str, files: dict[str, str]) -> Business:
             cancellation_tiers=tuple(tiers),
             summary_email=cfg.get("summary_email", ""),
             summary_hour=summary_hour,
+            reply_delay_seconds=reply_delay_seconds,
             about=files["about.md"].removesuffix("\n"),
             rules=files["rules.md"].removesuffix("\n"),
             context=files["context.md"].removesuffix("\n"),
