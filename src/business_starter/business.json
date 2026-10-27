@@ -18,6 +18,7 @@
   "out_of_hours_note": "Owner's hours are Tue–Fri 10am–6pm, Sat 10am–4pm. They'll follow up personally when they're back.",
   "summary_email": "",
   "summary_hour": 10,
+  "reply_delay_seconds": 5,
   "cancellation_tiers": [
     {"min_hours": 48, "status": "deposit can move to a future booking (48+ hours away)"},
     {"min_hours": 0, "status": "deposit is forfeited (less than 48 hours away, or a no-show)"}

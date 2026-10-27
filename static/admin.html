@@ -252,6 +252,7 @@
             <div><label>Time zone</label><input data-k="timezone" placeholder="America/New_York"></div>
             <div><label>Summary email</label><input data-k="summary_email" type="email"></div>
             <div><label>Summary time (local hour, 0–23)</label><input data-k="summary_hour" type="number" min="0" max="23"></div>
+            <div><label>Reply wait (seconds, 0–300)</label><input data-k="reply_delay_seconds" type="number" min="0" max="300" placeholder="5" title="How long Mia waits after a client's last message before replying, so clients can finish their thought and the owner can jump in first"></div>
             <div><label>Booking link</label><input data-k="booking_link"></div>
             <div><label>Review link</label><input data-k="review_link"></div>
           </div>
@@ -679,7 +680,11 @@ function collectTiers() {
   });
 }
 function collect() {
-  $$("[data-k]").forEach(el => cfg[el.dataset.k] = el.type === "number" ? Number(el.value) : el.value.trim());
+  $$("[data-k]").forEach(el => {
+    if (el.type !== "number") cfg[el.dataset.k] = el.value.trim();
+    else if (el.value === "") delete cfg[el.dataset.k];  // left blank: use the default
+    else cfg[el.dataset.k] = Number(el.value);
+  });
   cfg.hours = {};
   $$("#hours tr[data-day]").forEach(tr => {
     const [on, from, to] = $$("input", tr);

@@ -18,6 +18,7 @@
   "out_of_hours_note": "Kha's hours are Tue–Fri 11am–8pm, Sat 10am–4pm — she'll follow up personally when she's back.",
   "summary_email": "glambydang@gmail.com",
   "summary_hour": 10,
+  "reply_delay_seconds": 5,
   "cancellation_tiers": [
     {"min_hours": 168, "status": "credit eligible toward a future booking (7+ days away) — not a cash refund"},
     {"min_hours": 24, "status": "NO refund or credit (less than 7 days away)"},
