@@ -355,9 +355,10 @@
       <div class="card" id="ev-start">
         <h3>Start an event</h3>
         <p class="muted small" style="margin-top:0">While an event is running, everyone who signs the waiver joins its line. Only one event runs at a time.</p>
-        <form id="ev-start-form" class="row">
-          <input id="ev-name" class="grow" style="width:auto" placeholder="e.g. Sarah &amp; Tom's wedding" maxlength="60" required>
-          <button class="btn">Start event</button>
+        <form id="ev-start-form" class="grid">
+          <div><label for="ev-name">Event name</label><input id="ev-name" placeholder="e.g. Sarah &amp; Tom's wedding" maxlength="60" required></div>
+          <div><label for="ev-tagline">Tagline (under the name on the display and guest page)</label><input id="ev-tagline" maxlength="120"></div>
+          <div style="align-self:end"><button class="btn">Start event</button></div>
         </form>
       </div>
 
@@ -369,6 +370,12 @@
             <a class="btn secondary" id="ev-open-hub" target="_blank" rel="noopener" style="text-decoration:none">Guest page</a>
             <button class="btn danger" id="ev-end">End event</button>
           </div>
+          <p class="small" style="margin:8px 0 0"><a class="linkish" id="ev-edit-toggle">Edit name and tagline</a></p>
+          <form id="ev-edit" class="grid hidden" style="margin-top:8px">
+            <div><label for="ev-edit-name">Event name</label><input id="ev-edit-name" maxlength="60" required></div>
+            <div><label for="ev-edit-tagline">Tagline (leave empty for none)</label><input id="ev-edit-tagline" maxlength="120"></div>
+            <div style="align-self:end"><button class="btn">Save</button></div>
+          </form>
         </div>
         <div class="card">
           <h3>The line</h3>
@@ -1105,6 +1112,9 @@ function renderEvents(d, fillSettings = false) {
   const waiting = guests.filter(g => g.status === "waiting");
   const finished = guests.filter(g => g.status === "done" || g.status === "no_show").sort((a, b) => b.updated_at - a.updated_at);
   $("#ev-title").textContent = live.name;
+  if ($("#ev-edit").classList.contains("hidden")) {
+    $("#ev-edit-name").value = live.name; $("#ev-edit-tagline").value = live.tagline;
+  }
   $("#ev-sub").textContent = `Started ${timeOf(live.started_at)} · ${waiting.length} waiting · ${guests.filter(g => g.status === "done").length} done`;
   $("#ev-open-display").href = d.links.display;
   $("#ev-open-hub").href = d.links.hub;
@@ -1149,7 +1159,19 @@ function renderEvents(d, fillSettings = false) {
 
 $("#ev-start-form").onsubmit = async (e) => {
   e.preventDefault();
-  if (await evAction("", "POST", { name: $("#ev-name").value })) { $("#ev-name").value = ""; toast("Event started. Waivers signed now join the line."); }
+  if (await evAction("", "POST", { name: $("#ev-name").value, tagline: $("#ev-tagline").value })) {
+    $("#ev-name").value = ""; $("#ev-tagline").value = DEFAULT_TAGLINE;
+    toast("Event started. Waivers signed now join the line.");
+  }
+};
+const DEFAULT_TAGLINE = "A forever souvenir for a forever kind of love";
+$("#ev-tagline").value = DEFAULT_TAGLINE;
+$("#ev-edit-toggle").onclick = () => $("#ev-edit").classList.toggle("hidden");
+$("#ev-edit").onsubmit = async (e) => {
+  e.preventDefault();
+  if (await evAction("/current", "PUT", { name: $("#ev-edit-name").value, tagline: $("#ev-edit-tagline").value })) {
+    $("#ev-edit").classList.add("hidden"); renderEvents(ev.data); toast("Saved");
+  }
 };
 $("#ev-end").onclick = async () => {
   if (!confirm("End this event? The line is cleared from the guest page and the display. You'll still see it under Past events.")) return;

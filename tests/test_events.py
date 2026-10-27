@@ -82,6 +82,10 @@ def test_waivers_join_the_line_and_the_public_sees_initials_only():
     assert public.get("/events/glam-by-dang/join", follow_redirects=False).headers["location"] == "/events/glam-by-dang/line"
 
     assert admin.post(EVENTS, json={"name": "Sarah & Tom's wedding"}).status_code == 200
+    assert public.get("/events/glam-by-dang/api/line").json()["event"]["tagline"] == events.DEFAULT_TAGLINE
+    d = admin.put(f"{EVENTS}/current", json={"name": "Sarah & Tom's wedding", "tagline": "  Ink  and   love "}).json()
+    assert d["event"]["tagline"] == "Ink and love"
+    assert admin.put(f"{EVENTS}/current", json={"name": " ", "tagline": "x"}).status_code == 400
     assert admin.post(EVENTS, json={"name": "Another"}).status_code == 409
     assert public.get("/events/glam-by-dang/join", follow_redirects=False).headers["location"] == "https://form.jotform.com/123"
     assert _waiver(public, hook, "s1", "Ana", "Lima").json()["added"] is True
@@ -136,6 +140,7 @@ def test_running_the_line_from_the_panel():
     # Ending clears the public line; the event moves to past events
     d = admin.post(f"{EVENTS}/end").json()
     assert d["event"] is None and d["past"][0]["name"] == "Party" and d["past"][0]["done"] == 1
+    assert admin.put(f"{EVENTS}/current", json={"name": "x"}).status_code == 409
     line = public.get("/events/glam-by-dang/api/line").json()
     assert line["event"] is None and line["waiting"] == []
     assert admin.post(f"{EVENTS}/guests", json={"first_name": "Late"}).status_code == 409
@@ -153,6 +158,23 @@ def test_settings_are_checked_and_owners_only_run_their_own_events():
     assert kha.get("/admin/api/businesses/lash-lab/events").status_code == 404
     assert kha.post("/admin/api/businesses/lash-lab/events", json={"name": "x"}).status_code == 404
     assert TestClient(server.app).get(EVENTS).status_code == 403
+
+
+def test_events_from_before_taglines_get_the_column():
+    import sqlite3
+    import tempfile
+    from store import Store
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "old.db")
+        old = sqlite3.connect(path)
+        old.executescript("CREATE TABLE events (id INTEGER PRIMARY KEY, business_id INTEGER NOT NULL, "
+                          "name TEXT NOT NULL, started_at REAL NOT NULL, ended_at REAL);"
+                          "INSERT INTO events (business_id, name, started_at) VALUES (1, 'Old party', 1.0);")
+        old.commit()
+        old.close()
+        store = Store(path)
+        biz = store.ensure_business("glam-by-dang", "Glam by Dang NYC")
+        assert store.live_event(biz) == {"id": 1, "name": "Old party", "tagline": "", "started_at": 1.0}
 
 
 if __name__ == "__main__":

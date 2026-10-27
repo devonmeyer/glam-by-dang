@@ -9,13 +9,14 @@
   <link rel="apple-touch-icon" href="/static/brand/icon-192.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,500&family=Figtree:wght@400;500;600;700&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,500;1,6..96,400&family=Figtree:wght@400;500;600;700&display=swap" />
   <link rel="stylesheet" href="/static/brand/brand.css" />
   <style>
     body.mia-page { padding-top: 36px; }
     .title { text-align: center; display: grid; gap: 4px; }
     .title h1 { font-family: var(--mia-display); font-weight: 500; font-size: 34px; line-height: 1.1; margin: 0; letter-spacing: -.01em; text-wrap: balance; }
-    .title p { margin: 0; color: var(--mia-soft); }
+    .title .eyebrow { font-size: 12px; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; color: var(--mia-soft); }
+    .title .tagline { font-family: var(--mia-display); font-style: italic; color: var(--mia-berry); font-size: 17px; line-height: 1.35; margin: 2px 0 0; text-wrap: balance; }
     .options { display: grid; gap: 12px; }
     .option { display: grid; grid-template-columns: 44px 1fr auto; gap: 14px; align-items: center; background: #fff; border: 1px solid var(--mia-line); border-radius: 14px; padding: 16px 18px; color: var(--mia-cocoa); text-decoration: none; }
     .option:hover { border-color: var(--mia-rose); }
@@ -45,8 +46,9 @@
 <body class="mia-page">
 <main class="mia-shell">
   <div class="title">
-    <h1 id="biz">&nbsp;</h1>
-    <p id="event-name">&nbsp;</p>
+    <div class="eyebrow" id="biz">&nbsp;</div>
+    <h1 id="event-name">&nbsp;</h1>
+    <p class="tagline hidden" id="tagline"></p>
   </div>
 
   <!-- The page the QR code opens -->
@@ -117,8 +119,10 @@ function setLink(el, href, hide = true) {
 function render(d) {
   const owner = d.business.owner_name || d.business.name;
   document.title = `${d.business.name} · ${onLine ? "The line" : "Welcome"}`;
-  $("#biz").textContent = d.business.name;
-  $("#event-name").textContent = d.event ? d.event.name : "The line isn't open right now";
+  $("#biz").textContent = d.event ? d.business.name : "The line isn't open right now";
+  $("#event-name").textContent = d.event ? d.event.name : d.business.name;
+  $("#tagline").textContent = d.event?.tagline || "";
+  $("#tagline").classList.toggle("hidden", !d.event?.tagline);
 
   if (!onLine) {
     $("#hub").classList.remove("hidden");

@@ -10,61 +10,88 @@
   <link rel="apple-touch-icon" href="/static/brand/icon-192.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,500&family=Figtree:wght@400;500;600;700&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,500;1,6..96,400&family=Figtree:wght@400;500;600;700&display=swap" />
   <link rel="stylesheet" href="/static/brand/brand.css" />
   <style>
     * { box-sizing: border-box; }
     html, body { height: 100%; }
     body { margin: 0; background: var(--mia-blush); color: var(--mia-cocoa); font-family: var(--mia-body); overflow: hidden; }
-    .wrap { height: 100%; display: grid; grid-template-columns: 1fr minmax(300px, 38%); gap: 3vw; padding: 4vh 4vw; }
+    .wrap { height: 100%; display: grid; grid-template-columns: 1fr minmax(300px, 34%); gap: 4vw; padding: 5vh 4vw; }
+
     .line { display: flex; flex-direction: column; min-height: 0; }
-    h1 { font-family: var(--mia-display); font-weight: 500; font-size: clamp(30px, 5vw, 64px); line-height: 1.05; margin: 0; letter-spacing: -.01em; }
-    .event { color: var(--mia-soft); font-size: clamp(16px, 2vw, 24px); margin-top: 6px; }
-    .label { font-size: clamp(12px, 1.3vw, 16px); font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--mia-soft); margin: 4vh 0 1vh; }
-    .now { font-family: var(--mia-display); font-size: clamp(28px, 4.4vw, 56px); color: var(--mia-berry); line-height: 1.1; }
-    ol { list-style: none; margin: 0; padding: 0; overflow: hidden; flex: 1; min-height: 0; }
-    li { display: grid; grid-template-columns: 2.2em 1fr; font-size: clamp(20px, 2.8vw, 36px); padding: .32em 0; border-top: 1px solid var(--mia-line); }
-    li:first-child { border-top: 0; }
-    li .n { color: var(--mia-rose); font-variant-numeric: tabular-nums; }
-    li.first { font-weight: 600; }
-    .more, .empty { color: var(--mia-soft); font-size: clamp(16px, 2vw, 24px); margin-top: 1vh; }
-    .qr { background: #fff; border: 1px solid var(--mia-line); border-radius: 24px; padding: 3vh 2.5vw; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 1.6vh; }
-    .qr h2 { font-family: var(--mia-display); font-weight: 500; font-size: clamp(26px, 3.4vw, 46px); line-height: 1.1; margin: 0; }
-    .qr p { margin: 0; color: var(--mia-soft); font-size: clamp(14px, 1.6vw, 20px); }
-    .qr img { width: min(100%, 46vh); aspect-ratio: 1; }
-    .qr .url { font-weight: 600; color: var(--mia-berry); font-size: clamp(14px, 1.6vw, 20px); word-break: break-all; }
-    .powered { display: flex; align-items: center; gap: 6px; color: var(--mia-soft); font-size: 13px; }
+    .eyebrow { font-size: clamp(12px, 1.25vw, 16px); font-weight: 600; letter-spacing: .16em; text-transform: uppercase; color: var(--mia-soft); }
+    h1 { font-family: var(--mia-display); font-weight: 500; font-size: clamp(34px, 5.2vw, 72px); line-height: 1.04; margin: 1.2vh 0 0; letter-spacing: -.015em; text-wrap: balance; }
+    .tagline { font-family: var(--mia-display); font-style: italic; font-weight: 400; color: var(--mia-berry); font-size: clamp(18px, 2.3vw, 32px); line-height: 1.25; margin-top: 1.2vh; text-wrap: balance; }
+    .rule { width: 56px; height: 2px; background: var(--mia-rose); border-radius: 2px; margin: 3.5vh 0 3vh; }
+
+    .now { background: var(--mia-berry); color: #fff; border-radius: 18px; padding: 2.2vh 2vw; display: flex; align-items: baseline; gap: 1.6vw; margin-bottom: 3vh; }
+    .now .label { color: var(--mia-berry-light); white-space: nowrap; }
+    .now .names { font-family: var(--mia-display); font-size: clamp(26px, 3.6vw, 48px); line-height: 1.1; }
+    .label { font-size: clamp(11px, 1.15vw, 15px); font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--mia-soft); }
+    .next-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 1.2vh; }
+
+    ol { list-style: none; margin: 0; padding: 0; flex: 1; min-height: 0; overflow: hidden; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; column-gap: 3vw; align-content: start; }
+    li { display: flex; align-items: center; gap: .7em; font-size: clamp(20px, 2.6vw, 34px); padding: .34em 0; border-bottom: 1px solid var(--mia-line); min-width: 0; }
+    li .n { flex: none; width: 1.7em; height: 1.7em; border-radius: 50%; background: #fff; border: 1px solid var(--mia-line); color: var(--mia-soft); display: grid; place-items: center; font-size: .55em; font-weight: 600; font-variant-numeric: tabular-nums; }
+    li .who { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    li.first .n { background: var(--mia-tint); border-color: var(--mia-tint); color: var(--mia-berry); }
+    li.first .who { font-weight: 600; }
+    .more { color: var(--mia-soft); font-size: clamp(15px, 1.7vw, 22px); margin-top: 1.4vh; }
+
+    .empty { background: #fff; border: 1px solid var(--mia-line); border-radius: 18px; padding: 4vh 3vw; display: grid; gap: 1vh; max-width: 40em; }
+    .empty strong { font-family: var(--mia-display); font-weight: 500; font-size: clamp(24px, 3vw, 40px); line-height: 1.15; }
+    .empty span { color: var(--mia-soft); font-size: clamp(15px, 1.7vw, 22px); }
+
+    .qr { background: #fff; border: 1px solid var(--mia-line); border-radius: 28px; padding: 4vh 2.6vw; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 2.4vh; box-shadow: 0 10px 40px rgba(58,39,36,.06); }
+    .qr h2 { font-family: var(--mia-display); font-weight: 500; font-size: clamp(26px, 3vw, 42px); line-height: 1.1; margin: 0; text-wrap: balance; }
+    .qr .code { width: min(100%, 44vh); aspect-ratio: 1; padding: 1.2vh; border-radius: 16px; border: 1px solid var(--mia-line); }
+    .qr .code img { width: 100%; height: 100%; display: block; }
+    .qr ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: .5em; }
+    .qr ul li { font-size: clamp(12px, 1.25vw, 16px); padding: .35em .8em; border: 0; border-radius: 99px; background: var(--mia-tint); color: var(--mia-berry); font-weight: 600; }
+    .qr .url { color: var(--mia-soft); font-size: clamp(12px, 1.3vw, 17px); word-break: break-all; margin: 0; }
+    .powered { display: flex; align-items: center; justify-content: center; gap: 6px; color: var(--mia-soft); font-size: 13px; margin: 0; }
     .powered img { width: 20px; height: 20px; }
+
     .stale { position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%); background: var(--mia-cocoa); color: #fff; padding: 6px 12px; border-radius: 99px; font-size: 13px; }
     .hidden { display: none !important; }
     @media (orientation: portrait) {
-      .wrap { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
-      .qr { flex-direction: row; text-align: left; gap: 3vw; padding: 2.5vh 4vw; }
-      .qr img { width: 24vh; flex: none; }
-      .qr div { display: grid; gap: 1vh; }
+      .wrap { grid-template-columns: 1fr; grid-template-rows: 1fr auto; gap: 3vh; }
+      .qr { flex-direction: row; text-align: left; justify-content: flex-start; gap: 4vw; padding: 2.5vh 4vw; }
+      .qr .code { width: 22vh; flex: none; }
+      .qr .text { display: grid; gap: 1.4vh; }
+      .qr ul { justify-content: flex-start; }
+      .powered { justify-content: flex-start; }
     }
   </style>
 </head>
 <body>
 <div class="wrap">
   <section class="line">
-    <h1 id="biz">&nbsp;</h1>
-    <div class="event" id="event-name">&nbsp;</div>
-    <div id="now-wrap" class="hidden">
-      <div class="label">Now</div>
-      <div class="now" id="now"></div>
+    <div class="eyebrow" id="biz">&nbsp;</div>
+    <h1 id="event-name">&nbsp;</h1>
+    <div class="tagline hidden" id="tagline"></div>
+    <div class="rule"></div>
+
+    <div class="now hidden" id="now-wrap">
+      <span class="label">Now</span>
+      <span class="names" id="now"></span>
     </div>
-    <div class="label" id="next-label">Up next</div>
+    <div class="next-head" id="next-head">
+      <span class="label">Up next</span>
+      <span class="label" id="count"></span>
+    </div>
     <ol id="waiting"></ol>
-    <div class="more hidden" id="more"></div>
+    <div class="more" id="more" style="visibility:hidden">&nbsp;</div>
+    <div class="empty hidden" id="empty"><strong id="empty-title"></strong><span id="empty-sub"></span></div>
   </section>
+
   <aside class="qr">
-    <img id="qr" alt="QR code" />
-    <div>
+    <div class="code"><img id="qr" alt="QR code to join the line" /></div>
+    <div class="text" style="display:grid;gap:1.6vh;justify-items:center">
       <h2>Scan to join the line</h2>
-      <p id="qr-sub">See where you are, leave a review, or leave a tip</p>
+      <ul id="perks"></ul>
       <p class="url" id="url"></p>
-      <p class="powered" style="justify-content:center;margin-top:1vh"><img src="/static/brand/mark.svg" alt="" />Powered by Mia</p>
+      <p class="powered"><img src="/static/brand/mark.svg" alt="" />Powered by Mia</p>
     </div>
   </aside>
 </div>
@@ -78,31 +105,46 @@ const esc = (s) => { const d = document.createElement("div"); d.textContent = s 
 $("#qr").src = `${base}/qr.svg`;
 
 function fit() {
-  // Show as many names as fit on screen, then "+N more"
+  // As many names as fit: one column, then two, then "+N more"
   const list = $("#waiting");
   const items = [...list.children];
-  items.forEach(li => li.classList.remove("hidden"));
-  let hidden = 0;
-  for (let i = items.length - 1; i > 0 && list.scrollHeight > list.clientHeight + 1; i--) {
-    items[i].classList.add("hidden"); hidden++;
-  }
-  $("#more").textContent = hidden ? `+ ${hidden} more` : "";
-  $("#more").classList.toggle("hidden", !hidden);
+  const overflowing = () => list.scrollHeight > list.clientHeight + 1 || list.scrollWidth > list.clientWidth + 1;
+  const layout = (cols, shown) => {
+    items.forEach((li, i) => li.classList.toggle("hidden", i >= shown));
+    list.style.gridTemplateRows = `repeat(${Math.max(1, Math.ceil(shown / cols))}, auto)`;
+  };
+  let cols = 1, shown = items.length;
+  layout(cols, shown);
+  if (overflowing() && items.length > 5) { cols = 2; layout(cols, shown); }
+  while (shown > 1 && overflowing()) layout(cols, --shown);
+  const hidden = items.length - shown;
+  $("#more").textContent = hidden ? `+ ${hidden} more in line` : "\u00a0";
+  $("#more").style.visibility = hidden ? "visible" : "hidden";
 }
 
 function render(d) {
   const owner = d.business.owner_name || d.business.name;
-  document.title = `${d.business.name} · The line`;
+  document.title = `${d.event ? d.event.name : d.business.name} · The line`;
   $("#biz").textContent = d.business.name;
-  $("#event-name").textContent = d.event ? d.event.name : "The line opens soon";
+  $("#event-name").textContent = d.event ? d.event.name : d.business.name;
+  $("#tagline").textContent = d.event?.tagline || "";
+  $("#tagline").classList.toggle("hidden", !d.event?.tagline);
   $("#url").textContent = d.links.hub.replace(/^https?:\/\//, "");
-  $("#qr-sub").textContent = `See where you are, leave a review${d.links.tip ? `, or tip ${owner}` : ""}`;
+  $("#perks").innerHTML = ["Your spot in line", "Leave a review", d.links.tip && `Tip ${owner}`]
+    .filter(Boolean).map(p => `<li>${esc(p)}</li>`).join("");
+
   $("#now-wrap").classList.toggle("hidden", !d.now.length);
   $("#now").textContent = d.now.join(" · ");
-  $("#next-label").textContent = d.waiting.length ? `Up next · ${d.waiting.length} waiting` : "Up next";
-  $("#waiting").innerHTML = d.waiting.length
-    ? d.waiting.map((n, i) => `<li class="${i ? "" : "first"}"><span class="n">${i + 1}</span><span>${esc(n)}</span></li>`).join("")
-    : `<li class="empty" style="border:0">${d.event ? "Nobody's waiting. Scan to be next!" : "Scan the code when the party starts."}</li>`;
+  const empty = !d.waiting.length;
+  $("#next-head").classList.toggle("hidden", empty);
+  $("#waiting").classList.toggle("hidden", empty);
+  $("#more").classList.toggle("hidden", empty);
+  $("#count").textContent = `${d.waiting.length} waiting`;
+  $("#empty").classList.toggle("hidden", !empty);
+  $("#empty-title").textContent = !d.event ? "The line opens soon" : d.now.length ? "Nobody's waiting" : "Be the first in line";
+  $("#empty-sub").textContent = d.event ? "Scan the code, sign the waiver, and you're in." : "Scan the code when the party starts.";
+  $("#waiting").innerHTML = d.waiting.map((n, i) =>
+    `<li class="${i ? "" : "first"}"><span class="n">${i + 1}</span><span class="who">${esc(n)}</span></li>`).join("");
   fit();
 }
 
@@ -116,12 +158,12 @@ async function load() {
 }
 load();
 setInterval(load, 4000);
-window.addEventListener("resize", fit);
+// Refit when the space for the list changes (screen rotation, fonts arriving)
+new ResizeObserver(() => fit()).observe($("#waiting"));
 
 // Keep the iPad awake while the display is up
-let lock = null;
 async function stayAwake() {
-  try { if ("wakeLock" in navigator && !document.hidden) lock = await navigator.wakeLock.request("screen"); } catch {}
+  try { if ("wakeLock" in navigator && !document.hidden) await navigator.wakeLock.request("screen"); } catch {}
 }
 document.addEventListener("visibilitychange", stayAwake);
 stayAwake();
