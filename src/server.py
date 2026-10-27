@@ -16,13 +16,15 @@ from zoneinfo import ZoneInfo
 from fastapi import FastAPI, Form, Header, HTTPException, Query, Request, Response
 from html import escape
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from pathlib import Path
+from urllib.parse import quote
 import httpx
 import anthropic
 
+import events
 import instagram_connect
 from accounts import (ROLES, LoginThrottle, User, check_password, hash_link_token, hash_password,
                       normalize_email, password_problem, read_session_cookie, session_cookie, valid_email)
@@ -1482,6 +1484,251 @@ async def admin_logs(request: Request, q: str = "", level: str = "", limit: int 
     lines = [r for r in recent_logs.records
              if (not levels or r["level"] in levels) and (not needle or needle in r["message"].lower())]
     return {"lines": lines[-limit:]}
+
+
+# --- Event management: the line at a party, joined through a JotForm waiver (see events.py) ---
+
+
+def _event_business(slug: str) -> tuple[Business, int, dict]:
+    """A business with events set up, for the public pages; 404 otherwise."""
+    if slug not in business_slugs():
+        raise HTTPException(status_code=404, detail="No such event page")
+    business = load_business(slug)
+    biz_id = store.ensure_business(business.slug, business.name)
+    settings = store.event_settings(biz_id)
+    if settings is None:
+        raise HTTPException(status_code=404, detail="No such event page")
+    return business, biz_id, settings
+
+
+def _venmo_url(handle: str) -> str:
+    return f"https://venmo.com/u/{handle}" if handle else ""
+
+
+def _event_links(request: Request, slug: str) -> dict:
+    base = f"{_base_url(request)}/events/{slug}"
+    return {"hub": base, "line": f"{base}/line", "display": f"{base}/display"}
+
+
+@app.get("/events/{slug}")
+@app.get("/events/{slug}/line")
+async def event_page(slug: str):
+    _event_business(slug)
+    return FileResponse(os.path.join(static_dir, "event.html"))
+
+
+@app.post("/events/{slug}/line")
+async def event_page_after_waiver(slug: str, request: Request):
+    """JotForm's thank-you page can redirect here with HTTP POST, which carries the submission id,
+    so the person lands on the line with their own spot shown."""
+    _event_business(slug)
+    form = await request.form()
+    submission_id = str(form.get("submission_id") or form.get("submissionID") or "").strip()
+    query = f"?s={quote(submission_id)}" if submission_id else ""
+    return RedirectResponse(f"/events/{slug}/line{query}", status_code=303)
+
+
+@app.get("/events/{slug}/display")
+async def event_display_page(slug: str):
+    _event_business(slug)
+    return FileResponse(os.path.join(static_dir, "event-display.html"))
+
+
+@app.get("/events/{slug}/join")
+async def event_join(slug: str):
+    """Sends people to the waiver; submitting it puts them in line."""
+    _, biz_id, settings = _event_business(slug)
+    if not settings["jotform_url"] or not store.live_event(biz_id):
+        return RedirectResponse(f"/events/{slug}/line", status_code=302)
+    return RedirectResponse(settings["jotform_url"], status_code=302)
+
+
+@app.get("/events/{slug}/qr.svg")
+async def event_qr(slug: str, request: Request):
+    _event_business(slug)
+    return Response(events.qr_svg(_event_links(request, slug)["hub"]), media_type="image/svg+xml",
+                    headers={"Cache-Control": "public, max-age=3600"})
+
+
+@app.get("/events/{slug}/api/line")
+async def event_line(slug: str, request: Request, s: str = ""):
+    """The line as the public sees it: first names and last initials only.
+    s is a JotForm submission id, to tell someone where they are."""
+    business, biz_id, settings = _event_business(slug)
+    event = store.live_event(biz_id)
+    guests = store.guests(event["id"]) if event else []
+    waiting = [g for g in guests if g["status"] == "waiting"]
+    you = None
+    mine = next((g for g in guests if s and g["submission_id"] == s), None)
+    if mine:
+        place = next((i for i, g in enumerate(waiting, start=1) if g["id"] == mine["id"]), None)
+        you = {"name": events.public_name(mine["first_name"], mine["last_name"]), "status": mine["status"],
+               "place": place}
+    return JSONResponse({
+        "business": {"name": business.name, "owner_name": business.owner_name},
+        "event": {"name": event["name"]} if event else None,
+        "now": [events.public_name(g["first_name"], g["last_name"]) for g in guests if g["status"] == "now"],
+        "waiting": [events.public_name(g["first_name"], g["last_name"]) for g in waiting],
+        "done": sum(g["status"] == "done" for g in guests),
+        "you": you,
+        "links": {
+            "hub": _event_links(request, slug)["hub"],
+            "join": f"/events/{slug}/join" if event and settings["jotform_url"] else "",
+            "review": business.review_link,
+            "tip": _venmo_url(settings["venmo"]),
+        },
+    }, headers={"Cache-Control": "no-store"})
+
+
+@app.post("/hooks/jotform/{token}")
+async def jotform_webhook(token: str, request: Request):
+    """JotForm calls this when someone submits the waiver; they go to the back of the live event's line."""
+    biz_id = store.business_for_event_hook(token)
+    if biz_id is None:
+        raise HTTPException(status_code=404, detail="Unknown webhook")
+    form = await request.form()
+    submission_id = str(form.get("submissionID", "")).strip() or None
+    name = events.jotform_guest_name(str(form.get("rawRequest", "")), str(form.get("pretty", "")))
+    event = store.live_event(biz_id)
+    if event is None:
+        logger.warning("JotForm submission %s arrived with no event running; nobody was added", submission_id)
+        return {"ok": True, "added": False, "reason": "no event running"}
+    if name is None:
+        logger.warning("JotForm submission %s had no name field we recognize; nobody was added", submission_id)
+        return {"ok": True, "added": False, "reason": "no name field"}
+    guest_id = store.add_guest(event["id"], name[0], name[1], submission_id)
+    if guest_id:
+        logger.info("%s joined the line for %s", events.public_name(*name), event["name"])
+    return {"ok": True, "added": bool(guest_id)}
+
+
+class EventSettings(BaseModel):
+    jotform_url: str = ""
+    venmo: str = ""
+
+
+class NewEvent(BaseModel):
+    name: str
+
+
+class NewGuest(BaseModel):
+    first_name: str
+    last_name: str = ""
+
+
+class GuestStatus(BaseModel):
+    status: str
+
+
+class GuestOrder(BaseModel):
+    guest_ids: list[int]
+
+
+def _require_event_business(request: Request, slug: str) -> tuple[Business, int, dict]:
+    """Like _require_business; also sets up events for the business the first time."""
+    _, business = _require_business(request, slug)
+    biz_id = store.ensure_business(business.slug, business.name)
+    return business, biz_id, store.event_settings(biz_id, create_token=secrets.token_urlsafe(24))
+
+
+def _require_live_event(biz_id: int) -> dict:
+    event = store.live_event(biz_id)
+    if event is None:
+        raise HTTPException(status_code=409, detail="No event is running. Start one first.")
+    return event
+
+
+def _events_overview(request: Request, slug: str) -> dict:
+    business, biz_id, settings = _require_event_business(request, slug)
+    event = store.live_event(biz_id)
+    guests = store.guests(event["id"]) if event else []
+    return {
+        "settings": {"jotform_url": settings["jotform_url"], "venmo": settings["venmo"],
+                     "review_link": business.review_link,
+                     "webhook_url": f"{_base_url(request)}/hooks/jotform/{settings['hook_token']}"},
+        "links": _event_links(request, slug),
+        "event": event,
+        "guests": [{**{k: g[k] for k in ("id", "first_name", "last_name", "status", "joined_at", "updated_at")},
+                    "walk_in": g["submission_id"] is None} for g in guests],
+        "past": store.past_events(biz_id),
+    }
+
+
+@app.get("/admin/api/businesses/{slug}/events")
+async def admin_events(slug: str, request: Request):
+    return _events_overview(request, slug)
+
+
+@app.put("/admin/api/businesses/{slug}/events/settings")
+async def admin_event_settings(slug: str, req: EventSettings, request: Request):
+    _, biz_id, _ = _require_event_business(request, slug)
+    url = req.jotform_url.strip()
+    if url and not url.startswith("https://"):
+        raise HTTPException(status_code=400, detail="The JotForm link should start with https://")
+    try:
+        venmo = events.venmo_handle(req.venmo)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    store.save_event_settings(biz_id, url, venmo)
+    return _events_overview(request, slug)
+
+
+@app.post("/admin/api/businesses/{slug}/events")
+async def admin_start_event(slug: str, req: NewEvent, request: Request):
+    _, biz_id, _ = _require_event_business(request, slug)
+    name = events.clean_name(req.name)
+    if not name:
+        raise HTTPException(status_code=400, detail="Give the event a name")
+    if store.live_event(biz_id):
+        raise HTTPException(status_code=409, detail="An event is already running. End it first.")
+    store.start_event(biz_id, name)
+    logger.info("Event %r started for %s", name, slug)
+    return _events_overview(request, slug)
+
+
+@app.post("/admin/api/businesses/{slug}/events/end")
+async def admin_end_event(slug: str, request: Request):
+    _, biz_id, _ = _require_event_business(request, slug)
+    event = _require_live_event(biz_id)
+    store.end_event(event["id"])
+    logger.info("Event %r ended for %s", event["name"], slug)
+    return _events_overview(request, slug)
+
+
+@app.post("/admin/api/businesses/{slug}/events/guests")
+async def admin_add_guest(slug: str, req: NewGuest, request: Request):
+    _, biz_id, _ = _require_event_business(request, slug)
+    event = _require_live_event(biz_id)
+    first, last = events.clean_name(req.first_name), events.clean_name(req.last_name)
+    if not first:
+        raise HTTPException(status_code=400, detail="Enter a first name")
+    store.add_guest(event["id"], first, last)
+    return _events_overview(request, slug)
+
+
+@app.post("/admin/api/businesses/{slug}/events/guests/{guest_id}")
+async def admin_guest_status(slug: str, guest_id: int, req: GuestStatus, request: Request):
+    _, biz_id, _ = _require_event_business(request, slug)
+    if req.status not in events.STATUSES:
+        raise HTTPException(status_code=400, detail="Unknown status")
+    if not store.set_guest_status(_require_live_event(biz_id)["id"], guest_id, req.status):
+        raise HTTPException(status_code=404, detail="That person isn't in this event's line")
+    return _events_overview(request, slug)
+
+
+@app.delete("/admin/api/businesses/{slug}/events/guests/{guest_id}")
+async def admin_remove_guest(slug: str, guest_id: int, request: Request):
+    _, biz_id, _ = _require_event_business(request, slug)
+    if not store.remove_guest(_require_live_event(biz_id)["id"], guest_id):
+        raise HTTPException(status_code=404, detail="That person isn't in this event's line")
+    return _events_overview(request, slug)
+
+
+@app.post("/admin/api/businesses/{slug}/events/order")
+async def admin_order_guests(slug: str, req: GuestOrder, request: Request):
+    _, biz_id, _ = _require_event_business(request, slug)
+    store.reorder_guests(_require_live_event(biz_id)["id"], req.guest_ids)
+    return _events_overview(request, slug)
 
 
 app.mount("/static", StaticFiles(directory=static_dir), name="static")

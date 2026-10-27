@@ -33,8 +33,9 @@
   .small { font-size: 13px; }
   h2 { font-size: 22px; margin: 0 0 4px; }
   h3 { font-size: 15px; margin: 0 0 10px; }
-  button.btn { background: var(--accent); color: #fff; border: 0; border-radius: 7px; padding: 8px 14px; font: inherit; font-weight: 600; cursor: pointer; }
-  button.btn.secondary { background: var(--accent-soft); color: var(--accent); }
+  a.btn { display: inline-block; text-decoration: none; }
+  button.btn, a.btn { background: var(--accent); color: #fff; border: 0; border-radius: 7px; padding: 8px 14px; font: inherit; font-weight: 600; cursor: pointer; }
+  .btn.secondary { background: var(--accent-soft); color: var(--accent); }
   button.btn.danger { background: #fde8e7; color: var(--bad); }
   button.btn:disabled { opacity: .5; cursor: default; }
   input, select, textarea { font: inherit; border: 1px solid var(--line); border-radius: 7px; padding: 7px 9px; background: #fff; color: var(--text); width: 100%; }
@@ -103,6 +104,14 @@
   .sim .escalation dl { display: grid; grid-template-columns: max-content 1fr; gap: 3px 12px; margin: 6px 0 0; }
   .sim .escalation dt { color: var(--muted); }
   .sim .escalation dd { margin: 0; }
+  .guests { list-style: none; margin: 0; padding: 0; }
+  .guests li { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); flex-wrap: wrap; }
+  .guests li:first-child { border-top: 0; }
+  .guests .n { width: 26px; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
+  .guests .gname { flex: 1; min-width: 140px; }
+  .guests .acts { display: flex; gap: 6px; flex-wrap: wrap; }
+  .guests .acts .btn { padding: 6px 10px; font-size: 13px; }
+  .guests li.now { background: var(--accent-soft); border-radius: 8px; padding-left: 8px; padding-right: 8px; }
   .people td { font-size: 14px; }
   .people .actions { text-align: right; white-space: nowrap; }
   @media (max-width: 700px) {
@@ -336,6 +345,72 @@
       </div>
     </section>
 
+    <!-- Events -->
+    <section id="view-events" class="hidden">
+      <div class="row" style="margin-bottom:12px">
+        <h2 class="grow">Events</h2>
+        <select id="ev-business" style="width:auto"></select>
+      </div>
+
+      <div class="card" id="ev-start">
+        <h3>Start an event</h3>
+        <p class="muted small" style="margin-top:0">While an event is running, everyone who signs the waiver joins its line. Only one event runs at a time.</p>
+        <form id="ev-start-form" class="row">
+          <input id="ev-name" class="grow" style="width:auto" placeholder="e.g. Sarah &amp; Tom's wedding" maxlength="60" required>
+          <button class="btn">Start event</button>
+        </form>
+      </div>
+
+      <div id="ev-live" class="hidden">
+        <div class="card">
+          <div class="row">
+            <div class="grow" style="min-width:220px"><h3 style="margin:0" id="ev-title"></h3><div class="muted small" id="ev-sub"></div></div>
+            <a class="btn secondary" id="ev-open-display" target="_blank" rel="noopener" style="text-decoration:none">iPad display</a>
+            <a class="btn secondary" id="ev-open-hub" target="_blank" rel="noopener" style="text-decoration:none">Guest page</a>
+            <button class="btn danger" id="ev-end">End event</button>
+          </div>
+        </div>
+        <div class="card">
+          <h3>The line</h3>
+          <ul class="guests" id="ev-line"></ul>
+          <form id="ev-walkin" class="row" style="margin-top:12px">
+            <input id="ev-first" class="grow" style="width:auto" placeholder="First name" maxlength="60" required>
+            <input id="ev-last" class="grow" style="width:auto" placeholder="Last name" maxlength="60">
+            <button class="btn secondary">Add walk-in</button>
+          </form>
+        </div>
+        <div class="card">
+          <h3 id="ev-done-title">Done</h3>
+          <ul class="guests" id="ev-done"></ul>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Setup</h3>
+        <form id="ev-settings" class="grid">
+          <div><label for="ev-jotform">Waiver (JotForm link)</label><input id="ev-jotform" type="url" placeholder="https://form.jotform.com/..."></div>
+          <div><label for="ev-venmo">Venmo for tips</label><input id="ev-venmo" placeholder="@glambydangnyc"></div>
+          <div style="align-self:end"><button class="btn">Save</button></div>
+        </form>
+        <p class="muted small" id="ev-review-note"></p>
+        <div class="small" style="margin-top:12px">
+          <strong>Guest page</strong> (what the QR code opens)
+          <div class="link-box" style="margin-top:4px"><input id="ev-hub-url" readonly><button type="button" class="btn secondary" data-copy="#ev-hub-url">Copy</button></div>
+        </div>
+        <div class="small" style="margin-top:12px">
+          <strong>JotForm webhook</strong>
+          <p class="muted" style="margin:2px 0 4px">In JotForm, open the waiver, go to Settings &gt; Integrations &gt; Webhooks and paste this URL. Every waiver signed during an event then adds the person to the line. Keep it private.</p>
+          <div class="link-box"><input id="ev-hook-url" readonly><button type="button" class="btn secondary" data-copy="#ev-hook-url">Copy</button></div>
+          <p class="muted" style="margin:6px 0 0">To send people straight to their spot after signing: in the form's Thank You Page settings, choose to redirect to <code id="ev-redirect"></code> and turn on <em>Redirect with HTTP POST</em>.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Past events</h3>
+        <div id="ev-past" class="small"></div>
+      </div>
+    </section>
+
     <!-- People -->
     <section id="view-people" class="hidden">
       <div class="row" style="margin-bottom:12px">
@@ -512,16 +587,16 @@ $("#logout").onclick = async () => {
   me = null; businesses = []; current = null; dirty = false;
   chatId = null; try { sessionStorage.removeItem("mia-chat"); } catch {}
   $("#as-chat").innerHTML = ""; resetSim("");
-  stopLogs(); history.replaceState(null, "", location.pathname);
+  stopLogs(); stopEvents(); history.replaceState(null, "", location.pathname);
   showLogin();
 };
 
 // --- Navigation ---
-const VIEWS = ["businesses", "business", "assistant", "simulator", "people", "logs"];
+const VIEWS = ["businesses", "business", "assistant", "simulator", "events", "people", "logs"];
 function buildNav() {
   const items = isAdmin()
-    ? [["businesses", "Businesses"], ["assistant", "Assistant"], ["simulator", "Simulator"], ["people", "People"], ["logs", "Logs"]]
-    : [["businesses", "My business"], ["assistant", "Assistant"], ["simulator", "Simulator"]];
+    ? [["businesses", "Businesses"], ["assistant", "Assistant"], ["simulator", "Simulator"], ["events", "Events"], ["people", "People"], ["logs", "Logs"]]
+    : [["businesses", "My business"], ["events", "Events"], ["assistant", "Assistant"], ["simulator", "Simulator"]];
   $("#nav").innerHTML = items.map(([v, label]) => `<button data-view="${v}">${label}</button>`).join("");
   $$("#nav button").forEach(b => b.onclick = () => go(b.dataset.view === "businesses" ? "#" : "#" + b.dataset.view));
   $("#who").textContent = me.email;
@@ -532,6 +607,7 @@ function show(view) {
   for (const v of VIEWS) $(`#view-${v}`).classList.toggle("hidden", v !== view);
   $$("#nav button").forEach(b => b.classList.toggle("on", b.dataset.view === (view === "business" ? "businesses" : view)));
   if (view === "logs") startLogs(); else stopLogs();
+  if (view !== "events") stopEvents();
 }
 function go(hash) {
   if (dirty && !confirm("Discard unsaved changes?")) return;
@@ -548,6 +624,7 @@ function route() {
   else if (h === "#people" && isAdmin()) openPeople();
   else if (h === "#assistant") openAssistant();
   else if (h === "#simulator" || h.startsWith("#simulator/")) openSimulator(decodeURIComponent(h.slice(11)));
+  else if (h === "#events" || h.startsWith("#events/")) openEvents(decodeURIComponent(h.slice(8)));
   else if (h.startsWith("#b/")) openBusiness(decodeURIComponent(h.slice(3)));
   else if (!isAdmin()) openBusiness(me.business_slug);
   else { show("businesses"); loadBusinesses(); }
@@ -967,6 +1044,136 @@ $("#sim-owner-form").onsubmit = (e) => {
   sim.history.push({ role: "assistant", content: text });
   if (!sim.takeover) { sim.takeover = true; simNote("You replied, so Mia steps back from this conversation."); }
 };
+
+// --- Events: the line at a party ---
+let ev = { slug: "", data: null, timer: null, busy: false };
+const evPath = (p = "") => `/admin/api/businesses/${encodeURIComponent(ev.slug)}/events${p}`;
+const timeOf = (t) => new Date(t * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+async function openEvents(slug) {
+  show("events");
+  try { await ensureBusinesses(); } catch (err) { toast(err.message, true); }
+  const usable = businesses.filter(b => !b.error);
+  const sel = $("#ev-business");
+  sel.innerHTML = usable.map(b => `<option value="${esc(b.slug)}">${esc(b.name)}</option>`).join("");
+  sel.classList.toggle("hidden", !isAdmin());
+  ev.slug = [slug, ev.slug, current?.slug, me.business_slug, usable[0]?.slug].find(x => x && usable.some(b => b.slug === x)) || "";
+  sel.value = ev.slug;
+  ev.data = null;
+  await loadEvents(true);
+  stopEvents();
+  ev.timer = setInterval(() => { if (!document.hidden && !ev.busy) loadEvents(); }, 5000);
+}
+function stopEvents() { clearInterval(ev.timer); ev.timer = null; }
+$("#ev-business").onchange = (e) => go("#events/" + encodeURIComponent(e.target.value));
+
+async function loadEvents(fillSettings = false) {
+  if (!ev.slug) return;
+  try { renderEvents(await api(evPath()), fillSettings); }
+  catch (err) { stopEvents(); toast(err.message, true); }
+}
+async function evAction(path, method = "POST", body) {
+  ev.busy = true;
+  try { renderEvents(await api(evPath(path), { method, body })); return true; }
+  catch (err) { toast(err.message, true); return false; }
+  finally { ev.busy = false; }
+}
+
+function guestName(g) { return esc(`${g.first_name} ${g.last_name}`.trim()); }
+function renderEvents(d, fillSettings = false) {
+  ev.data = d;
+  const live = d.event;
+  $("#ev-start").classList.toggle("hidden", !!live);
+  $("#ev-live").classList.toggle("hidden", !live);
+  if (fillSettings) {
+    $("#ev-jotform").value = d.settings.jotform_url;
+    $("#ev-venmo").value = d.settings.venmo ? "@" + d.settings.venmo : "";
+  }
+  $("#ev-hub-url").value = d.links.hub;
+  $("#ev-hook-url").value = d.settings.webhook_url;
+  $("#ev-redirect").textContent = d.links.line;
+  $("#ev-review-note").textContent = d.settings.review_link
+    ? "The review button uses the review link from the business's Settings."
+    : "Add a review link in the business's Settings to show a review button.";
+  $("#ev-past").innerHTML = d.past.length ? `<table>${d.past.map(p => `<tr><td>${esc(p.name)}</td>
+      <td class="muted">${new Date(p.started_at * 1000).toLocaleDateString()}</td>
+      <td class="muted">${p.done} done of ${p.guests}</td></tr>`).join("")}</table>` : `<span class="muted">None yet.</span>`;
+  if (!live) return;
+
+  const guests = d.guests;
+  const now = guests.filter(g => g.status === "now");
+  const waiting = guests.filter(g => g.status === "waiting");
+  const finished = guests.filter(g => g.status === "done" || g.status === "no_show").sort((a, b) => b.updated_at - a.updated_at);
+  $("#ev-title").textContent = live.name;
+  $("#ev-sub").textContent = `Started ${timeOf(live.started_at)} · ${waiting.length} waiting · ${guests.filter(g => g.status === "done").length} done`;
+  $("#ev-open-display").href = d.links.display;
+  $("#ev-open-hub").href = d.links.hub;
+
+  const walkIn = (g) => g.walk_in ? ` <span class="pill">walk-in</span>` : "";
+  $("#ev-line").innerHTML = [
+    ...now.map(g => `<li class="now" data-id="${g.id}"><span class="n">★</span>
+      <span class="gname"><strong>${guestName(g)}</strong>${walkIn(g)} <span class="muted small">now</span></span>
+      <span class="acts"><button class="btn" data-st="done">Done</button><button class="btn secondary" data-st="waiting">Back to line</button></span></li>`),
+    ...waiting.map((g, i) => `<li data-id="${g.id}"><span class="n">${i + 1}</span>
+      <span class="gname">${guestName(g)}${walkIn(g)} <span class="muted small">joined ${timeOf(g.joined_at)}</span></span>
+      <span class="acts">
+        <button class="btn" data-st="now">Start</button>
+        <button class="btn secondary" data-move="top" ${i ? "" : "disabled"} title="Move to the front">⤒</button>
+        <button class="btn secondary" data-move="-1" ${i ? "" : "disabled"} title="Move up">↑</button>
+        <button class="btn secondary" data-move="1" ${i < waiting.length - 1 ? "" : "disabled"} title="Move down">↓</button>
+        <button class="btn secondary" data-st="no_show">No-show</button>
+        <button class="btn danger" data-remove title="Take out of the line">✕</button>
+      </span></li>`),
+  ].join("") || `<li class="muted">Nobody in line yet. Share the guest page or put the iPad display up.</li>`;
+
+  $("#ev-done-title").textContent = `Done and no-shows (${finished.length})`;
+  $("#ev-done").innerHTML = finished.map(g => `<li data-id="${g.id}"><span class="gname">${guestName(g)}${walkIn(g)}
+      <span class="pill ${g.status === "done" ? "ok" : "warn"}">${g.status === "done" ? "done" : "no-show"}</span>
+      <span class="muted small">${timeOf(g.updated_at)}</span></span>
+      <span class="acts"><button class="btn secondary" data-st="waiting">Back to line</button></span></li>`).join("")
+    || `<li class="muted">Nobody yet.</li>`;
+
+  $$("#ev-live [data-st]").forEach(b => b.onclick = () =>
+    evAction(`/guests/${b.closest("li").dataset.id}`, "POST", { status: b.dataset.st }));
+  $$("#ev-live [data-remove]").forEach(b => b.onclick = () => {
+    if (confirm("Take this person out of the line?")) evAction(`/guests/${b.closest("li").dataset.id}`, "DELETE");
+  });
+  $$("#ev-live [data-move]").forEach(b => b.onclick = () => {
+    const ids = waiting.map(g => g.id);
+    const id = +b.closest("li").dataset.id, i = ids.indexOf(id);
+    ids.splice(i, 1);
+    ids.splice(b.dataset.move === "top" ? 0 : i + Number(b.dataset.move), 0, id);
+    evAction("/order", "POST", { guest_ids: ids });
+  });
+}
+
+$("#ev-start-form").onsubmit = async (e) => {
+  e.preventDefault();
+  if (await evAction("", "POST", { name: $("#ev-name").value })) { $("#ev-name").value = ""; toast("Event started. Waivers signed now join the line."); }
+};
+$("#ev-end").onclick = async () => {
+  if (!confirm("End this event? The line is cleared from the guest page and the display. You'll still see it under Past events.")) return;
+  if (await evAction("/end")) toast("Event ended");
+};
+$("#ev-walkin").onsubmit = async (e) => {
+  e.preventDefault();
+  if (await evAction("/guests", "POST", { first_name: $("#ev-first").value, last_name: $("#ev-last").value })) {
+    $("#ev-first").value = $("#ev-last").value = ""; $("#ev-first").focus();
+  }
+};
+$("#ev-settings").onsubmit = async (e) => {
+  e.preventDefault();
+  ev.busy = true;
+  try {
+    renderEvents(await api(evPath("/settings"), { method: "PUT", body: { jotform_url: $("#ev-jotform").value, venmo: $("#ev-venmo").value } }), true);
+    toast("Saved");
+  } catch (err) { toast(err.message, true); }
+  finally { ev.busy = false; }
+};
+$$("[data-copy]").forEach(b => b.onclick = async () => {
+  const input = $(b.dataset.copy);
+  try { await navigator.clipboard.writeText(input.value); toast("Copied"); } catch { input.select(); }
+});
 
 // --- People ---
 let people = [];
