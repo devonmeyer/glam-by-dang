@@ -108,6 +108,36 @@ CREATE TABLE IF NOT EXISTS password_links (
     expires_at REAL NOT NULL,
     used_at REAL
 );
+-- Event management (see events.py): per-business setup, the events, and the people in each line.
+-- hook_token is the secret in the JotForm webhook URL that enrolls guests.
+CREATE TABLE IF NOT EXISTS event_settings (
+    business_id INTEGER PRIMARY KEY REFERENCES businesses(id),
+    jotform_url TEXT NOT NULL DEFAULT '',
+    venmo TEXT NOT NULL DEFAULT '',
+    hook_token TEXT NOT NULL UNIQUE,
+    updated_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS events (
+    id INTEGER PRIMARY KEY,
+    business_id INTEGER NOT NULL REFERENCES businesses(id),
+    name TEXT NOT NULL,
+    started_at REAL NOT NULL,
+    ended_at REAL
+);
+-- status: waiting, now (being tattooed), done, no_show. position orders the line.
+-- submission_id is JotForm's, so a resent webhook doesn't add someone twice; NULL for walk-ins.
+CREATE TABLE IF NOT EXISTS event_guests (
+    id INTEGER PRIMARY KEY,
+    event_id INTEGER NOT NULL REFERENCES events(id),
+    first_name TEXT NOT NULL,
+    last_name TEXT NOT NULL DEFAULT '',
+    submission_id TEXT,
+    status TEXT NOT NULL DEFAULT 'waiting',
+    position INTEGER NOT NULL,
+    joined_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    UNIQUE (event_id, submission_id)
+);
 """
 
 
@@ -425,3 +455,85 @@ class Store:
             (business_id, message_id),
         ))
 
+
+    # Event management
+
+    EVENT_SETTINGS_COLUMNS = "jotform_url, venmo, hook_token"
+    GUEST_COLUMNS = "id, first_name, last_name, submission_id, status, position, joined_at, updated_at"
+
+    def event_settings(self, business_id: int, create_token: str = "") -> Optional[dict]:
+        """{jotform_url, venmo, hook_token}; with create_token, a missing row is created first."""
+        if create_token:
+            self._execute(
+                "INSERT OR IGNORE INTO event_settings (business_id, hook_token, updated_at) VALUES (?, ?, ?)",
+                (business_id, create_token, self.clock()),
+            )
+        rows = self._execute(f"SELECT {self.EVENT_SETTINGS_COLUMNS} FROM event_settings WHERE business_id = ?",
+                             (business_id,))
+        return dict(zip(("jotform_url", "venmo", "hook_token"), rows[0])) if rows else None
+
+    def save_event_settings(self, business_id: int, jotform_url: str, venmo: str) -> None:
+        self._execute("UPDATE event_settings SET jotform_url = ?, venmo = ?, updated_at = ? WHERE business_id = ?",
+                      (jotform_url, venmo, self.clock(), business_id))
+
+    def business_for_event_hook(self, hook_token: str) -> Optional[int]:
+        rows = self._execute("SELECT business_id FROM event_settings WHERE hook_token = ?", (hook_token,))
+        return rows[0][0] if rows else None
+
+    def live_event(self, business_id: int) -> Optional[dict]:
+        rows = self._execute(
+            "SELECT id, name, started_at FROM events WHERE business_id = ? AND ended_at IS NULL "
+            "ORDER BY id DESC LIMIT 1", (business_id,))
+        return dict(zip(("id", "name", "started_at"), rows[0])) if rows else None
+
+    def start_event(self, business_id: int, name: str) -> int:
+        with self._lock:
+            return self.conn.execute("INSERT INTO events (business_id, name, started_at) VALUES (?, ?, ?)",
+                                     (business_id, name, self.clock())).lastrowid
+
+    def end_event(self, event_id: int) -> None:
+        self._execute("UPDATE events SET ended_at = ? WHERE id = ? AND ended_at IS NULL", (self.clock(), event_id))
+
+    def past_events(self, business_id: int, limit: int = 20) -> list[dict]:
+        rows = self._execute(
+            "SELECT e.id, e.name, e.started_at, e.ended_at, COUNT(g.id), "
+            "COALESCE(SUM(g.status = 'done'), 0) FROM events e LEFT JOIN event_guests g ON g.event_id = e.id "
+            "WHERE e.business_id = ? AND e.ended_at IS NOT NULL GROUP BY e.id ORDER BY e.id DESC LIMIT ?",
+            (business_id, limit))
+        return [dict(zip(("id", "name", "started_at", "ended_at", "guests", "done"), r)) for r in rows]
+
+    def add_guest(self, event_id: int, first_name: str, last_name: str,
+                  submission_id: Optional[str] = None) -> Optional[int]:
+        """The new guest's id, at the back of the line; None if that submission is already in."""
+        now = self.clock()
+        with self._lock:
+            cur = self.conn.execute(
+                "INSERT OR IGNORE INTO event_guests (event_id, first_name, last_name, submission_id, position, "
+                "joined_at, updated_at) VALUES (?, ?, ?, ?, "
+                "(SELECT COALESCE(MAX(position), 0) + 1 FROM event_guests WHERE event_id = ?), ?, ?)",
+                (event_id, first_name, last_name, submission_id, event_id, now, now))
+            return cur.lastrowid if cur.rowcount else None
+
+    def guests(self, event_id: int) -> list[dict]:
+        rows = self._execute(f"SELECT {self.GUEST_COLUMNS} FROM event_guests WHERE event_id = ? "
+                             "ORDER BY position, id", (event_id,))
+        return [dict(zip(self.GUEST_COLUMNS.split(", "), r)) for r in rows]
+
+    def set_guest_status(self, event_id: int, guest_id: int, status: str) -> bool:
+        with self._lock:
+            return self.conn.execute(
+                "UPDATE event_guests SET status = ?, updated_at = ? WHERE id = ? AND event_id = ?",
+                (status, self.clock(), guest_id, event_id)).rowcount > 0
+
+    def remove_guest(self, event_id: int, guest_id: int) -> bool:
+        with self._lock:
+            return self.conn.execute("DELETE FROM event_guests WHERE id = ? AND event_id = ?",
+                                     (guest_id, event_id)).rowcount > 0
+
+    def reorder_guests(self, event_id: int, guest_ids: list[int]) -> None:
+        """Puts these guests first, in this order; everyone else keeps their order after them."""
+        rest = [g["id"] for g in self.guests(event_id) if g["id"] not in set(guest_ids)]
+        with self._lock:
+            for position, guest_id in enumerate([*guest_ids, *rest], start=1):
+                self.conn.execute("UPDATE event_guests SET position = ? WHERE id = ? AND event_id = ?",
+                                  (position, guest_id, event_id))

@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="robots" content="noindex" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <title>The line</title>
+  <link rel="icon" href="/static/brand/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/static/brand/icon-192.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,500&family=Figtree:wght@400;500;600;700&display=swap" />
+  <link rel="stylesheet" href="/static/brand/brand.css" />
+  <style>
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body { margin: 0; background: var(--mia-blush); color: var(--mia-cocoa); font-family: var(--mia-body); overflow: hidden; }
+    .wrap { height: 100%; display: grid; grid-template-columns: 1fr minmax(300px, 38%); gap: 3vw; padding: 4vh 4vw; }
+    .line { display: flex; flex-direction: column; min-height: 0; }
+    h1 { font-family: var(--mia-display); font-weight: 500; font-size: clamp(30px, 5vw, 64px); line-height: 1.05; margin: 0; letter-spacing: -.01em; }
+    .event { color: var(--mia-soft); font-size: clamp(16px, 2vw, 24px); margin-top: 6px; }
+    .label { font-size: clamp(12px, 1.3vw, 16px); font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--mia-soft); margin: 4vh 0 1vh; }
+    .now { font-family: var(--mia-display); font-size: clamp(28px, 4.4vw, 56px); color: var(--mia-berry); line-height: 1.1; }
+    ol { list-style: none; margin: 0; padding: 0; overflow: hidden; flex: 1; min-height: 0; }
+    li { display: grid; grid-template-columns: 2.2em 1fr; font-size: clamp(20px, 2.8vw, 36px); padding: .32em 0; border-top: 1px solid var(--mia-line); }
+    li:first-child { border-top: 0; }
+    li .n { color: var(--mia-rose); font-variant-numeric: tabular-nums; }
+    li.first { font-weight: 600; }
+    .more, .empty { color: var(--mia-soft); font-size: clamp(16px, 2vw, 24px); margin-top: 1vh; }
+    .qr { background: #fff; border: 1px solid var(--mia-line); border-radius: 24px; padding: 3vh 2.5vw; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 1.6vh; }
+    .qr h2 { font-family: var(--mia-display); font-weight: 500; font-size: clamp(26px, 3.4vw, 46px); line-height: 1.1; margin: 0; }
+    .qr p { margin: 0; color: var(--mia-soft); font-size: clamp(14px, 1.6vw, 20px); }
+    .qr img { width: min(100%, 46vh); aspect-ratio: 1; }
+    .qr .url { font-weight: 600; color: var(--mia-berry); font-size: clamp(14px, 1.6vw, 20px); word-break: break-all; }
+    .powered { display: flex; align-items: center; gap: 6px; color: var(--mia-soft); font-size: 13px; }
+    .powered img { width: 20px; height: 20px; }
+    .stale { position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%); background: var(--mia-cocoa); color: #fff; padding: 6px 12px; border-radius: 99px; font-size: 13px; }
+    .hidden { display: none !important; }
+    @media (orientation: portrait) {
+      .wrap { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
+      .qr { flex-direction: row; text-align: left; gap: 3vw; padding: 2.5vh 4vw; }
+      .qr img { width: 24vh; flex: none; }
+      .qr div { display: grid; gap: 1vh; }
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <section class="line">
+    <h1 id="biz">&nbsp;</h1>
+    <div class="event" id="event-name">&nbsp;</div>
+    <div id="now-wrap" class="hidden">
+      <div class="label">Now</div>
+      <div class="now" id="now"></div>
+    </div>
+    <div class="label" id="next-label">Up next</div>
+    <ol id="waiting"></ol>
+    <div class="more hidden" id="more"></div>
+  </section>
+  <aside class="qr">
+    <img id="qr" alt="QR code" />
+    <div>
+      <h2>Scan to join the line</h2>
+      <p id="qr-sub">See where you are, leave a review, or leave a tip</p>
+      <p class="url" id="url"></p>
+      <p class="powered" style="justify-content:center;margin-top:1vh"><img src="/static/brand/mark.svg" alt="" />Powered by Mia</p>
+    </div>
+  </aside>
+</div>
+<div class="stale hidden" id="stale">Reconnecting…</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const slug = decodeURIComponent(location.pathname.split("/")[2] || "");
+const base = `/events/${encodeURIComponent(slug)}`;
+const esc = (s) => { const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML; };
+$("#qr").src = `${base}/qr.svg`;
+
+function fit() {
+  // Show as many names as fit on screen, then "+N more"
+  const list = $("#waiting");
+  const items = [...list.children];
+  items.forEach(li => li.classList.remove("hidden"));
+  let hidden = 0;
+  for (let i = items.length - 1; i > 0 && list.scrollHeight > list.clientHeight + 1; i--) {
+    items[i].classList.add("hidden"); hidden++;
+  }
+  $("#more").textContent = hidden ? `+ ${hidden} more` : "";
+  $("#more").classList.toggle("hidden", !hidden);
+}
+
+function render(d) {
+  const owner = d.business.owner_name || d.business.name;
+  document.title = `${d.business.name} · The line`;
+  $("#biz").textContent = d.business.name;
+  $("#event-name").textContent = d.event ? d.event.name : "The line opens soon";
+  $("#url").textContent = d.links.hub.replace(/^https?:\/\//, "");
+  $("#qr-sub").textContent = `See where you are, leave a review${d.links.tip ? `, or tip ${owner}` : ""}`;
+  $("#now-wrap").classList.toggle("hidden", !d.now.length);
+  $("#now").textContent = d.now.join(" · ");
+  $("#next-label").textContent = d.waiting.length ? `Up next · ${d.waiting.length} waiting` : "Up next";
+  $("#waiting").innerHTML = d.waiting.length
+    ? d.waiting.map((n, i) => `<li class="${i ? "" : "first"}"><span class="n">${i + 1}</span><span>${esc(n)}</span></li>`).join("")
+    : `<li class="empty" style="border:0">${d.event ? "Nobody's waiting. Scan to be next!" : "Scan the code when the party starts."}</li>`;
+  fit();
+}
+
+async function load() {
+  try {
+    const res = await fetch(`${base}/api/line`, { cache: "no-store" });
+    if (!res.ok) throw new Error(res.status);
+    render(await res.json());
+    $("#stale").classList.add("hidden");
+  } catch { $("#stale").classList.remove("hidden"); }
+}
+load();
+setInterval(load, 4000);
+window.addEventListener("resize", fit);
+
+// Keep the iPad awake while the display is up
+let lock = null;
+async function stayAwake() {
+  try { if ("wakeLock" in navigator && !document.hidden) lock = await navigator.wakeLock.request("screen"); } catch {}
+}
+document.addEventListener("visibilitychange", stayAwake);
+stayAwake();
+</script>
+</body>
+</html>

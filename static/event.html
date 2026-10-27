@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex" />
+  <title>The line</title>
+  <link rel="icon" href="/static/brand/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/static/brand/icon-192.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,500&family=Figtree:wght@400;500;600;700&display=swap" />
+  <link rel="stylesheet" href="/static/brand/brand.css" />
+  <style>
+    body.mia-page { padding-top: 36px; }
+    .title { text-align: center; display: grid; gap: 4px; }
+    .title h1 { font-family: var(--mia-display); font-weight: 500; font-size: 34px; line-height: 1.1; margin: 0; letter-spacing: -.01em; text-wrap: balance; }
+    .title p { margin: 0; color: var(--mia-soft); }
+    .options { display: grid; gap: 12px; }
+    .option { display: grid; grid-template-columns: 44px 1fr auto; gap: 14px; align-items: center; background: #fff; border: 1px solid var(--mia-line); border-radius: 14px; padding: 16px 18px; color: var(--mia-cocoa); text-decoration: none; }
+    .option:hover { border-color: var(--mia-rose); }
+    .option .icon { width: 44px; height: 44px; border-radius: 50%; background: var(--mia-tint); color: var(--mia-berry); display: grid; place-items: center; font-size: 20px; }
+    .option strong { display: block; font-size: 17px; }
+    .option span.sub { color: var(--mia-soft); font-size: 14px; }
+    .option .chev { color: var(--mia-rose); font-size: 22px; }
+    .option.primary { background: var(--mia-berry); border-color: var(--mia-berry); color: #fff; }
+    .option.primary .icon { background: rgba(255,255,255,.16); color: #fff; }
+    .option.primary span.sub, .option.primary .chev { color: #F6DCE3; }
+    .option.off { opacity: .55; pointer-events: none; }
+    .you { text-align: center; background: var(--mia-berry); color: #fff; border-radius: 14px; padding: 22px; display: grid; gap: 2px; }
+    .you .big { font-family: var(--mia-display); font-size: 40px; line-height: 1.1; }
+    .you.quiet { background: var(--mia-tint); color: var(--mia-cocoa); }
+    .list { list-style: none; margin: 0; padding: 0; display: grid; }
+    .list li { display: grid; grid-template-columns: 34px 1fr; gap: 10px; padding: 10px 0; border-top: 1px solid var(--mia-line); font-size: 17px; }
+    .list li:first-child { border-top: 0; }
+    .list .n { color: var(--mia-soft); font-variant-numeric: tabular-nums; }
+    .list li.me { color: var(--mia-berry); font-weight: 700; }
+    .label { font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--mia-soft); }
+    .now { font-family: var(--mia-display); font-size: 24px; }
+    .links { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; font-size: 15px; }
+    .stale { text-align: center; color: var(--mia-soft); font-size: 13px; }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body class="mia-page">
+<main class="mia-shell">
+  <div class="title">
+    <h1 id="biz">&nbsp;</h1>
+    <p id="event-name">&nbsp;</p>
+  </div>
+
+  <!-- The page the QR code opens -->
+  <section id="hub" class="options hidden">
+    <a class="option primary" id="o-join">
+      <span class="icon" aria-hidden="true">✎</span>
+      <span><strong>Join the line</strong><span class="sub" id="o-join-sub">Sign the waiver and you're in</span></span>
+      <span class="chev" aria-hidden="true">›</span>
+    </a>
+    <a class="option" id="o-line">
+      <span class="icon" aria-hidden="true">☰</span>
+      <span><strong>View the line</strong><span class="sub" id="o-line-sub">See who's up next</span></span>
+      <span class="chev" aria-hidden="true">›</span>
+    </a>
+    <a class="option" id="o-review" target="_blank" rel="noopener">
+      <span class="icon" aria-hidden="true">★</span>
+      <span><strong id="o-review-title">Leave a review</strong><span class="sub">It helps more than you know</span></span>
+      <span class="chev" aria-hidden="true">›</span>
+    </a>
+    <a class="option" id="o-tip" target="_blank" rel="noopener">
+      <span class="icon" aria-hidden="true">♡</span>
+      <span><strong id="o-tip-title">Leave a tip</strong><span class="sub" id="o-tip-sub">On Venmo</span></span>
+      <span class="chev" aria-hidden="true">›</span>
+    </a>
+  </section>
+
+  <!-- The line -->
+  <section id="line" class="hidden" style="display:grid;gap:16px">
+    <div class="you hidden" id="you"></div>
+    <div class="mia-card" id="now-card">
+      <div class="label">Now</div>
+      <div class="now" id="now"></div>
+    </div>
+    <div class="mia-card">
+      <div class="label" id="next-label">Up next</div>
+      <ol class="list" id="waiting"></ol>
+    </div>
+    <div class="links">
+      <a id="l-hub">Back</a>
+      <a id="l-review" target="_blank" rel="noopener">Leave a review</a>
+      <a id="l-tip" target="_blank" rel="noopener">Leave a tip</a>
+    </div>
+    <p class="stale hidden" id="stale">Reconnecting…</p>
+  </section>
+
+  <p class="mia-footer">Powered by <a href="/">Mia</a></p>
+</main>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const slug = decodeURIComponent(location.pathname.split("/")[2] || "");
+const base = `/events/${encodeURIComponent(slug)}`;
+const onLine = location.pathname.replace(/\/$/, "").endsWith("/line");
+const esc = (s) => { const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML; };
+
+// Who you are: the JotForm submission id the thank-you page passes as ?s=, remembered for later visits
+const storeKey = `mia-event-${slug}`;
+let mine = new URLSearchParams(location.search).get("s") || "";
+const justJoined = !!mine;   // straight from the waiver, so the webhook may still be on its way
+try {
+  if (mine) localStorage.setItem(storeKey, mine); else mine = localStorage.getItem(storeKey) || "";
+} catch {}
+
+function setLink(el, href, hide = true) {
+  if (href) { el.href = href; el.classList.remove("hidden"); } else if (hide) el.classList.add("hidden");
+}
+
+function render(d) {
+  const owner = d.business.owner_name || d.business.name;
+  document.title = `${d.business.name} · ${onLine ? "The line" : "Welcome"}`;
+  $("#biz").textContent = d.business.name;
+  $("#event-name").textContent = d.event ? d.event.name : "The line isn't open right now";
+
+  if (!onLine) {
+    $("#hub").classList.remove("hidden");
+    const join = $("#o-join");
+    join.href = d.links.join || "#";
+    join.classList.toggle("off", !d.links.join);
+    $("#o-join-sub").textContent = d.links.join ? "Sign the waiver and you're in" : "Opens when the party starts";
+    $("#o-line").href = `${base}/line`;
+    $("#o-line-sub").textContent = d.event ? `${d.waiting.length} ${d.waiting.length === 1 ? "person" : "people"} waiting` : "See who's up next";
+    $("#o-review-title").textContent = `Leave a review for ${owner}`;
+    setLink($("#o-review"), d.links.review);
+    $("#o-tip-title").textContent = `Tip ${owner}`;
+    $("#o-tip-sub").textContent = d.links.tip ? "On Venmo @" + d.links.tip.split("/").pop() : "";
+    setLink($("#o-tip"), d.links.tip);
+    return;
+  }
+
+  $("#line").classList.remove("hidden");
+  const you = $("#you");
+  you.classList.toggle("hidden", !mine || !d.event || (!d.you && !justJoined));
+  you.classList.remove("quiet");
+  if (d.you?.status === "waiting") {
+    you.innerHTML = d.you.place === 1
+      ? `<div>${esc(d.you.name)}, you're</div><div class="big">Up next</div><div>Stay close!</div>`
+      : `<div>${esc(d.you.name)}, you're</div><div class="big">#${d.you.place} in line</div><div>This page updates on its own.</div>`;
+  } else if (d.you?.status === "now") {
+    you.innerHTML = `<div>${esc(d.you.name)}</div><div class="big">It's your turn!</div>`;
+  } else if (d.you) {
+    you.classList.add("quiet");
+    you.innerHTML = d.you.status === "done"
+      ? `<div class="big">All done</div><div>Thank you, ${esc(d.you.name)}! Enjoy your new tattoo.</div>`
+      : `<div>${esc(d.you.name)}, we missed you.</div><div>Find ${esc(owner)} to get back in line.</div>`;
+  } else {
+    you.classList.add("quiet");
+    you.innerHTML = `<div>Finding your spot…</div><div class="small">If your name doesn't show up in a minute, find ${esc(owner)}.</div>`;
+  }
+
+  $("#now-card").classList.toggle("hidden", !d.now.length);
+  $("#now").textContent = d.now.join(", ");
+  const myName = d.you?.status === "waiting" ? d.you.place : 0;
+  $("#next-label").textContent = d.event ? `Up next · ${d.waiting.length} waiting` : "The line";
+  $("#waiting").innerHTML = d.waiting.length
+    ? d.waiting.map((n, i) => `<li class="${i + 1 === myName ? "me" : ""}"><span class="n">${i + 1}</span><span>${esc(n)}</span></li>`).join("")
+    : `<li><span></span><span class="mia-muted">${d.event ? "Nobody's waiting. Now's your chance!" : "The line opens when the party starts."}</span></li>`;
+  $("#l-hub").href = base;
+  $("#l-review").textContent = `Leave a review for ${owner}`;
+  setLink($("#l-review"), d.links.review);
+  $("#l-tip").textContent = `Tip ${owner}`;
+  setLink($("#l-tip"), d.links.tip);
+}
+
+async function load() {
+  try {
+    const res = await fetch(`${base}/api/line${mine ? "?s=" + encodeURIComponent(mine) : ""}`, { cache: "no-store" });
+    if (!res.ok) throw new Error(res.status);
+    render(await res.json());
+    $("#stale").classList.add("hidden");
+  } catch { $("#stale").classList.remove("hidden"); }
+}
+load();
+if (onLine) setInterval(() => { if (!document.hidden) load(); }, 5000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
+</script>
+</body>
+</html>
