@@ -121,6 +121,7 @@ CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY,
     business_id INTEGER NOT NULL REFERENCES businesses(id),
     name TEXT NOT NULL,
+    tagline TEXT NOT NULL DEFAULT '',
     started_at REAL NOT NULL,
     ended_at REAL
 );
@@ -187,6 +188,10 @@ class Store:
         if "reusable" not in invite_cols:
             # A reusable invite (for Meta's app reviewers) keeps working after it's used
             self._conn.execute("ALTER TABLE invites ADD COLUMN reusable INTEGER NOT NULL DEFAULT 0")
+        event_cols = {row[1] for row in self._conn.execute("PRAGMA table_info(events)")}
+        if "tagline" not in event_cols:
+            # The line under the event's name on the guest page and display
+            self._conn.execute("ALTER TABLE events ADD COLUMN tagline TEXT NOT NULL DEFAULT ''")
 
     def _execute(self, sql: str, params: tuple = ()) -> list[sqlite3.Row]:
         with self._lock:
@@ -482,14 +487,17 @@ class Store:
 
     def live_event(self, business_id: int) -> Optional[dict]:
         rows = self._execute(
-            "SELECT id, name, started_at FROM events WHERE business_id = ? AND ended_at IS NULL "
+            "SELECT id, name, tagline, started_at FROM events WHERE business_id = ? AND ended_at IS NULL "
             "ORDER BY id DESC LIMIT 1", (business_id,))
-        return dict(zip(("id", "name", "started_at"), rows[0])) if rows else None
+        return dict(zip(("id", "name", "tagline", "started_at"), rows[0])) if rows else None
 
-    def start_event(self, business_id: int, name: str) -> int:
+    def start_event(self, business_id: int, name: str, tagline: str = "") -> int:
         with self._lock:
-            return self.conn.execute("INSERT INTO events (business_id, name, started_at) VALUES (?, ?, ?)",
-                                     (business_id, name, self.clock())).lastrowid
+            return self.conn.execute("INSERT INTO events (business_id, name, tagline, started_at) VALUES (?, ?, ?, ?)",
+                                     (business_id, name, tagline, self.clock())).lastrowid
+
+    def update_event(self, event_id: int, name: str, tagline: str) -> None:
+        self._execute("UPDATE events SET name = ?, tagline = ? WHERE id = ?", (name, tagline, event_id))
 
     def end_event(self, event_id: int) -> None:
         self._execute("UPDATE events SET ended_at = ? WHERE id = ? AND ended_at IS NULL", (self.clock(), event_id))

@@ -13,10 +13,12 @@ import segno
 STATUSES = ("waiting", "now", "done", "no_show")
 VENMO_RE = re.compile(r"^[A-Za-z0-9_-]{1,30}$")
 MAX_NAME = 60
+MAX_TAGLINE = 120
+DEFAULT_TAGLINE = "A forever souvenir for a forever kind of love"
 
 
-def clean_name(s: str) -> str:
-    return " ".join(str(s or "").split())[:MAX_NAME]
+def clean_name(s: str, limit: int = MAX_NAME) -> str:
+    return " ".join(str(s or "").split())[:limit]
 
 
 def public_name(first: str, last: str) -> str:

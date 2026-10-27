@@ -1566,7 +1566,7 @@ async def event_line(slug: str, request: Request, s: str = ""):
                "place": place}
     return JSONResponse({
         "business": {"name": business.name, "owner_name": business.owner_name},
-        "event": {"name": event["name"]} if event else None,
+        "event": {"name": event["name"], "tagline": event["tagline"]} if event else None,
         "now": [events.public_name(g["first_name"], g["last_name"]) for g in guests if g["status"] == "now"],
         "waiting": [events.public_name(g["first_name"], g["last_name"]) for g in waiting],
         "done": sum(g["status"] == "done" for g in guests),
@@ -1609,6 +1609,7 @@ class EventSettings(BaseModel):
 
 class NewEvent(BaseModel):
     name: str
+    tagline: str = events.DEFAULT_TAGLINE
 
 
 class NewGuest(BaseModel):
@@ -1676,13 +1677,27 @@ async def admin_event_settings(slug: str, req: EventSettings, request: Request):
 @app.post("/admin/api/businesses/{slug}/events")
 async def admin_start_event(slug: str, req: NewEvent, request: Request):
     _, biz_id, _ = _require_event_business(request, slug)
+    name, tagline = _event_details(req)
+    if store.live_event(biz_id):
+        raise HTTPException(status_code=409, detail="An event is already running. End it first.")
+    store.start_event(biz_id, name, tagline)
+    logger.info("Event %r started for %s", name, slug)
+    return _events_overview(request, slug)
+
+
+def _event_details(req: NewEvent) -> tuple[str, str]:
     name = events.clean_name(req.name)
     if not name:
         raise HTTPException(status_code=400, detail="Give the event a name")
-    if store.live_event(biz_id):
-        raise HTTPException(status_code=409, detail="An event is already running. End it first.")
-    store.start_event(biz_id, name)
-    logger.info("Event %r started for %s", name, slug)
+    return name, events.clean_name(req.tagline, events.MAX_TAGLINE)
+
+
+@app.put("/admin/api/businesses/{slug}/events/current")
+async def admin_edit_event(slug: str, req: NewEvent, request: Request):
+    """Rename the running event or change its tagline (an empty tagline shows none)."""
+    _, biz_id, _ = _require_event_business(request, slug)
+    event = _require_live_event(biz_id)
+    store.update_event(event["id"], *_event_details(req))
     return _events_overview(request, slug)
 
 
